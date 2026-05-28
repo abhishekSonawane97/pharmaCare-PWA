@@ -1,0 +1,36 @@
+services:
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      MONGO_URI: ${MONGO_URI}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 7d
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@pharmacare.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme123}
+      CORS_ORIGIN: http://localhost:3000
+      TZ: Asia/Kolkata
+    ports:
+      - "4000:4000"
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: /api
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: /api
+      API_PROXY_TARGET: http://api:4000
+    ports:
+      - "3000:3000"

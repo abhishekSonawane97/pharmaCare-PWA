@@ -1,0 +1,33 @@
+# Dependencies & build output
+node_modules/
+.next/
+dist/
+*.tsbuildinfo
+
+# Secrets — NEVER commit these
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# Logs & runtime crud
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+ngrok.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Coverage reports
+coverage/
+
+# Database backups
+backup-*.gz
+*.dump
+

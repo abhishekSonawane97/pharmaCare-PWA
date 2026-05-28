@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:        oklch(0.985 0.003 195);
+  --bg-soft:   oklch(0.965 0.005 195);
+  --border:    oklch(0.91 0.008 195);
+  --ink:       oklch(0.22 0.018 220);
+  --ink-2:     oklch(0.36 0.014 220);
+  --muted:     oklch(0.55 0.012 220);
+
+  --brand-50:  oklch(0.97 0.018 195);
+  --brand-100: oklch(0.93 0.035 195);
+  --brand-300: oklch(0.78 0.09 195);
+  --brand-500: oklch(0.62 0.105 195);
+  --brand-600: oklch(0.55 0.11 195);
+  --brand-700: oklch(0.48 0.10 195);
+  --brand-800: oklch(0.38 0.08 195);
+
+  --success:     oklch(0.65 0.13 155);
+  --success-ink: oklch(0.42 0.10 155);
+  --success-bg:  color-mix(in oklab, oklch(0.65 0.13 155) 10%, transparent);
+  --success-border: color-mix(in oklab, oklch(0.65 0.13 155) 28%, transparent);
+  --warning:     oklch(0.78 0.14 75);
+  --warning-ink: oklch(0.46 0.12 65);
+  --danger:      oklch(0.62 0.18 25);
+  --danger-ink:  oklch(0.45 0.16 25);
+
+  --row-pad: 12px 16px;
+}
+
+html, body {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+body { margin: 0; }
+
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: oklch(0.85 0.01 200 / 0.5);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.7 0.015 200 / 0.6);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+input[type=date] { font-family: inherit; }
+
+.tabular-nums { font-variant-numeric: tabular-nums; }

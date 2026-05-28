@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PharmaCare — Pharmacy OS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter','ui-sans-serif','system-ui'], mono: ['JetBrains Mono','ui-monospace'] } } } };
+</script>
+<style>
+  :root {
+    --bg:        oklch(0.985 0.003 195);
+    --bg-soft:   oklch(0.965 0.005 195);
+    --border:    oklch(0.91 0.008 195);
+    --ink:       oklch(0.22 0.018 220);
+    --ink-2:     oklch(0.36 0.014 220);
+    --muted:     oklch(0.55 0.012 220);
+
+    --brand-50:  oklch(0.97 0.018 195);
+    --brand-100: oklch(0.93 0.035 195);
+    --brand-300: oklch(0.78 0.09 195);
+    --brand-500: oklch(0.62 0.105 195);
+    --brand-600: oklch(0.55 0.11 195);
+    --brand-700: oklch(0.48 0.10 195);
+    --brand-800: oklch(0.38 0.08 195);
+
+    --success:     oklch(0.65 0.13 155);
+    --success-ink: oklch(0.42 0.10 155);
+    --warning:     oklch(0.78 0.14 75);
+    --warning-ink: oklch(0.46 0.12 65);
+    --danger:      oklch(0.62 0.18 25);
+    --danger-ink:  oklch(0.45 0.16 25);
+  }
+  html, body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: oklch(0.85 0.01 200 / 0.5); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+  *::-webkit-scrollbar-thumb:hover { background: oklch(0.7 0.015 200 / 0.6); border: 2px solid transparent; background-clip: content-box; }
+  @keyframes toast { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .tabular-nums { font-variant-numeric: tabular-nums; }
+  input[type=date] { font-family: inherit; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="ui.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="pages-1.jsx"></script>
+<script type="text/babel" src="pages-2.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+</body>
+</html>
