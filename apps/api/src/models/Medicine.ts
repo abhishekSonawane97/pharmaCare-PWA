@@ -5,6 +5,7 @@ export interface IMedicine extends Document {
   name: string;
   content?: string;
   category?: string;
+  location?: string;
   type?: 'tab' | 'cap' | 'syrup';
   inStock: boolean;
   purchasePrice?: number;
@@ -20,6 +21,7 @@ const MedicineSchema = new Schema<IMedicine>(
     name: { type: String, required: true, unique: true, trim: true },
     content: { type: String, trim: true },
     category: { type: String, trim: true },
+    location: { type: String, trim: true },
     type: { type: String, enum: ['tab', 'cap', 'syrup'] },
     inStock: { type: Boolean, default: true },
     purchasePrice: { type: Number },

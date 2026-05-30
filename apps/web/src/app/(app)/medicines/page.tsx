@@ -103,11 +103,12 @@ export default function MedicinesPage() {
         </div>
 
         <div className="hidden md:block overflow-x-auto">
-        <table className="w-full text-[13px] min-w-[900px]">
+        <table className="w-full text-[13px] min-w-[1020px]">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-[0.08em] text-[var(--muted)] bg-[var(--bg-soft)]">
               <th className="py-2.5 px-4 font-medium">Name</th>
               <th className="py-2.5 px-4 font-medium">Content / Generic</th>
+              <th className="py-2.5 px-4 font-medium">Location</th>
               <th className="py-2.5 px-4 font-medium">Type</th>
               <th className="py-2.5 px-4 font-medium text-right tabular-nums">Purchase</th>
               <th className="py-2.5 px-4 font-medium text-right tabular-nums">MRP</th>
@@ -122,6 +123,9 @@ export default function MedicinesPage() {
                 <td className="py-3 px-4 font-medium text-[var(--ink)]">{m.name}</td>
                 <td className="py-3 px-4 text-[var(--ink-2)]">
                   {m.content || <span className="text-[var(--muted)] italic">— not set</span>}
+                </td>
+                <td className="py-3 px-4 text-[var(--ink-2)]">
+                  {m.location || <span className="text-[var(--muted)] italic">—</span>}
                 </td>
                 <td className="py-3 px-4">
                   <Badge tone={m.type === 'syrup' ? 'warning' : m.type === 'cap' ? 'brand' : 'neutral'}>
@@ -170,6 +174,11 @@ export default function MedicinesPage() {
                 <Badge tone={m.inStock ? 'success' : 'danger'} dot>
                   {m.inStock ? 'In stock' : 'Out of stock'}
                 </Badge>
+                {m.location && (
+                  <span className="inline-flex items-center h-[22px] px-2 rounded-md bg-[var(--bg-soft)] border border-[var(--border)] text-[11px] text-[var(--ink-2)]">
+                    📍 {m.location}
+                  </span>
+                )}
               </div>
               <div className="mt-2.5 grid grid-cols-3 gap-2 text-[11.5px]">
                 <div>
@@ -268,6 +277,11 @@ function MedicineFormModal({
         <div className="col-span-2">
           <Field label="Content / Generic" hint="Active ingredient(s)">
             <Input value={form.content || ''} onChange={e => setForm({ ...form, content: e.target.value })} />
+          </Field>
+        </div>
+        <div className="col-span-2">
+          <Field label="Location" hint="Where it's stored — e.g. Rack A-3, Refrigerator, Front counter">
+            <Input value={form.location || ''} onChange={e => setForm({ ...form, location: e.target.value })} />
           </Field>
         </div>
         <div className="col-span-2">

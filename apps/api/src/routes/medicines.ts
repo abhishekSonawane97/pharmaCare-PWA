@@ -13,6 +13,7 @@ const medicineSchema = z.object({
   name: z.string().min(1),
   content: z.string().optional().or(z.literal('')),
   category: z.string().optional().or(z.literal('')),
+  location: z.string().optional().or(z.literal('')),
   type: z.enum(['tab', 'cap', 'syrup']).optional(),
   inStock: z.boolean().optional(),
   purchasePrice: z.number().nonnegative().optional(),
@@ -50,6 +51,7 @@ router.post(
       name: body.name.trim(),
       content: body.content || undefined,
       category: body.category || undefined,
+      location: body.location || undefined,
     });
     await ActivityLog.create({
       actorId: req.user!._id,

@@ -55,6 +55,7 @@ export interface Medicine {
   name: string;
   content?: string;
   category?: string;
+  location?: string;
   type?: 'tab' | 'cap' | 'syrup';
   inStock: boolean;
   purchasePrice?: number;
