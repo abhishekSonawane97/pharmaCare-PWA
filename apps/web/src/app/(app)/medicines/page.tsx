@@ -49,9 +49,7 @@ export default function MedicinesPage() {
     return medicines.filter(m => m.type === typeFilter);
   }, [medicines, typeFilter]);
 
-  if (user?.role !== 'admin') {
-    return <EmptyState icon={Pill} title="Admin only" body="You don't have access to this page." />;
-  }
+  const canEdit = user?.role === 'admin';
 
   async function save(form: Partial<Medicine>) {
     try {
@@ -85,7 +83,7 @@ export default function MedicinesPage() {
       <PageHeader
         title="Medicines"
         subtitle={`${medicines.length} items in your catalog`}
-        actions={<Button icon={Plus} onClick={() => setAdding(true)}>Add medicine</Button>}
+        actions={canEdit ? <Button icon={Plus} onClick={() => setAdding(true)}>Add medicine</Button> : undefined}
       />
 
       <div className="bg-white border border-[var(--border)] rounded-lg overflow-hidden">
@@ -141,10 +139,12 @@ export default function MedicinesPage() {
                   </Badge>
                 </td>
                 <td className="py-3 px-4">
-                  <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <IconButton icon={Edit} tone="brand" onClick={() => setEditing(m)} />
-                    <IconButton icon={Trash2} tone="danger" onClick={() => setRemoving(m)} />
-                  </div>
+                  {canEdit && (
+                    <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <IconButton icon={Edit} tone="brand" onClick={() => setEditing(m)} />
+                      <IconButton icon={Trash2} tone="danger" onClick={() => setRemoving(m)} />
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -162,10 +162,12 @@ export default function MedicinesPage() {
                     {m.content || <span className="text-[var(--muted)] italic">— content not set</span>}
                   </div>
                 </div>
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <IconButton icon={Edit} tone="brand" onClick={() => setEditing(m)} />
-                  <IconButton icon={Trash2} tone="danger" onClick={() => setRemoving(m)} />
-                </div>
+                {canEdit && (
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <IconButton icon={Edit} tone="brand" onClick={() => setEditing(m)} />
+                    <IconButton icon={Trash2} tone="danger" onClick={() => setRemoving(m)} />
+                  </div>
+                )}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <Badge tone={m.type === 'syrup' ? 'warning' : m.type === 'cap' ? 'brand' : 'neutral'}>

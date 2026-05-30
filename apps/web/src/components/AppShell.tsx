@@ -32,7 +32,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: Home },
-  { href: '/medicines', label: 'Medicines', icon: Pill, adminOnly: true },
+  { href: '/medicines', label: 'Medicines', icon: Pill },
   { href: '/customers', label: 'Customers', icon: Users },
   { href: '/reminders', label: 'Reminders', icon: Bell },
   { href: '/payments', label: 'Payments', icon: Wallet },
