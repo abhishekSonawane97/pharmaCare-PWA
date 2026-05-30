@@ -59,6 +59,7 @@ export interface Medicine {
   inStock: boolean;
   purchasePrice?: number;
   mrp?: number;
+  discountedPrice?: number;
   addedFrom?: 'manual' | 'bill';
   createdAt: string;
   updatedAt: string;

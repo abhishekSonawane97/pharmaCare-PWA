@@ -9,6 +9,7 @@ export interface IMedicine extends Document {
   inStock: boolean;
   purchasePrice?: number;
   mrp?: number;
+  discountedPrice?: number;
   addedFrom?: 'manual' | 'bill';
   createdAt: Date;
   updatedAt: Date;
@@ -23,6 +24,7 @@ const MedicineSchema = new Schema<IMedicine>(
     inStock: { type: Boolean, default: true },
     purchasePrice: { type: Number },
     mrp: { type: Number },
+    discountedPrice: { type: Number },
     addedFrom: { type: String, enum: ['manual', 'bill'], default: 'manual' },
   },
   { timestamps: true }

@@ -17,6 +17,7 @@ const medicineSchema = z.object({
   inStock: z.boolean().optional(),
   purchasePrice: z.number().nonnegative().optional(),
   mrp: z.number().nonnegative().optional(),
+  discountedPrice: z.number().nonnegative().optional(),
   addedFrom: z.enum(['manual', 'bill']).optional(),
 });
 

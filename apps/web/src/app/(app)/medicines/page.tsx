@@ -14,6 +14,11 @@ import type { Medicine } from '@/lib/types';
 
 const TYPE_LABEL: Record<string, string> = { tab: 'Tablet', cap: 'Capsule', syrup: 'Syrup' };
 
+function fmtPrice(value: number | undefined | null): string {
+  if (value === undefined || value === null || Number.isNaN(value)) return '—';
+  return `₹${value.toLocaleString('en-IN')}`;
+}
+
 export default function MedicinesPage() {
   const { user } = useAuth();
   const toast = useToast();
@@ -98,12 +103,15 @@ export default function MedicinesPage() {
         </div>
 
         <div className="hidden md:block overflow-x-auto">
-        <table className="w-full text-[13px] min-w-[640px]">
+        <table className="w-full text-[13px] min-w-[900px]">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-[0.08em] text-[var(--muted)] bg-[var(--bg-soft)]">
               <th className="py-2.5 px-4 font-medium">Name</th>
               <th className="py-2.5 px-4 font-medium">Content / Generic</th>
               <th className="py-2.5 px-4 font-medium">Type</th>
+              <th className="py-2.5 px-4 font-medium text-right tabular-nums">Purchase</th>
+              <th className="py-2.5 px-4 font-medium text-right tabular-nums">MRP</th>
+              <th className="py-2.5 px-4 font-medium text-right tabular-nums">After discount</th>
               <th className="py-2.5 px-4 font-medium">In stock</th>
               <th className="py-2.5 px-4 w-[80px]"></th>
             </tr>
@@ -120,6 +128,9 @@ export default function MedicinesPage() {
                     {(m.type && TYPE_LABEL[m.type]) || '—'}
                   </Badge>
                 </td>
+                <td className="py-3 px-4 text-right tabular-nums text-[var(--ink-2)]">{fmtPrice(m.purchasePrice)}</td>
+                <td className="py-3 px-4 text-right tabular-nums text-[var(--ink-2)]">{fmtPrice(m.mrp)}</td>
+                <td className="py-3 px-4 text-right tabular-nums font-medium text-[var(--ink)]">{fmtPrice(m.discountedPrice)}</td>
                 <td className="py-3 px-4">
                   <Badge tone={m.inStock ? 'success' : 'danger'} dot>
                     {m.inStock ? 'In stock' : 'Out of stock'}
@@ -159,6 +170,20 @@ export default function MedicinesPage() {
                 <Badge tone={m.inStock ? 'success' : 'danger'} dot>
                   {m.inStock ? 'In stock' : 'Out of stock'}
                 </Badge>
+              </div>
+              <div className="mt-2.5 grid grid-cols-3 gap-2 text-[11.5px]">
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--muted)]">Purchase</div>
+                  <div className="tabular-nums text-[var(--ink-2)]">{fmtPrice(m.purchasePrice)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--muted)]">MRP</div>
+                  <div className="tabular-nums text-[var(--ink-2)]">{fmtPrice(m.mrp)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--muted)]">Discount</div>
+                  <div className="tabular-nums font-medium text-[var(--ink)]">{fmtPrice(m.discountedPrice)}</div>
+                </div>
               </div>
             </li>
           ))}
@@ -212,6 +237,16 @@ function MedicineFormModal({
     onSave(form);
   }
 
+  function updatePrice(key: 'purchasePrice' | 'mrp' | 'discountedPrice', raw: string) {
+    if (raw === '') {
+      const { [key]: _omit, ...rest } = form;
+      setForm(rest);
+      return;
+    }
+    const n = parseFloat(raw);
+    setForm({ ...form, [key]: Number.isFinite(n) && n >= 0 ? n : undefined });
+  }
+
   return (
     <Modal
       open={open}
@@ -257,6 +292,41 @@ function MedicineFormModal({
                 </button>
               ))}
             </div>
+          </Field>
+        </div>
+        <div className="col-span-2 grid grid-cols-3 gap-3">
+          <Field label="Purchase price (₹)" hint="Wholesale cost">
+            <Input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={form.purchasePrice ?? ''}
+              onChange={e => updatePrice('purchasePrice', e.target.value)}
+              placeholder="0"
+            />
+          </Field>
+          <Field label="Selling price / MRP (₹)" hint="Printed price">
+            <Input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={form.mrp ?? ''}
+              onChange={e => updatePrice('mrp', e.target.value)}
+              placeholder="0"
+            />
+          </Field>
+          <Field label="After discount (₹)" hint="Actual charged price">
+            <Input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={form.discountedPrice ?? ''}
+              onChange={e => updatePrice('discountedPrice', e.target.value)}
+              placeholder="0"
+            />
           </Field>
         </div>
         <div className="col-span-2">
