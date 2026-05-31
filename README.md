@@ -2,7 +2,23 @@
 
 A pharmacy customer-management web app with one-tap WhatsApp + SMS refill reminders, built for small-to-mid pharmacies in India.
 
-> **For new engineers:** if you only read one file, read this one. It's the source of truth for how the project is set up and how to run it. The `design_handoff_pharmacare/` folder is the original product spec — useful background but not how the code is currently configured.
+> ⚠️ **Current deployment is dev/testing grade** — Render free tier + Atlas M0 (no backups, no SLA). For real pharmacy use with real customer data, follow [`PRODUCTION.md`](PRODUCTION.md) to migrate to the production setup before going live.
+
+## 📚 Documentation
+
+If you just inherited this repo, read in this order:
+
+| File | What it covers | Read first if you're... |
+|---|---|---|
+| **[README.md](README.md)** *(this file)* | Setup, project structure, env vars, common commands | Setting up locally |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | How the system works — both deployment modes, data flow, design decisions | Trying to understand the codebase |
+| **[COST.md](COST.md)** | What it costs to run — dev (₹0) vs production (~₹5,800/mo). Per-customer math, scaling milestones | Planning to deploy for a real pharmacy |
+| **[PRODUCTION.md](PRODUCTION.md)** | Step-by-step migration from Render free → EC2 + Atlas M10 + backups + monitoring | Taking this to a paying pharmacy |
+| **[DEPLOY.md](DEPLOY.md)** | Render Blueprint walkthrough (current dev deploy) | Re-creating the dev deployment from scratch |
+| **[GITHUB.md](GITHUB.md)** | Pushing the code to GitHub | First-time repo setup |
+| **[design_handoff_pharmacare/](design_handoff_pharmacare/)** | Original product spec (reference only — code is source of truth now) | Looking for the original intent |
+
+> **For new engineers:** if you only read one file, read this one for setup, then [`ARCHITECTURE.md`](ARCHITECTURE.md) for the mental model. Everything else is reference material.
 
 ---
 
