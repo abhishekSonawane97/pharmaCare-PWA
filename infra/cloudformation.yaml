@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: |
-  PharmaCare production stack — one EC2 t4g.small (ARM64, Ubuntu 24.04) behind an
+  PharmaCare production stack - one EC2 t4g.small (ARM64, Ubuntu 24.04) behind an
   Elastic IP in Mumbai, with two ECR repos for the api + web images, an SSM-managed
   IAM role for the instance, and a GitHub Actions OIDC role for hands-off deploys.
   Single stack, single region. No load balancer, no autoscaling.
@@ -12,7 +12,7 @@ Parameters:
 
   SshCidr:
     Type: String
-    Description: CIDR allowed to SSH on port 22 — tighten to your /32 in production
+    Description: CIDR allowed to SSH on port 22 - tighten to your /32 in production
     Default: 0.0.0.0/0
     AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
 
@@ -90,7 +90,7 @@ Resources:
   InstanceSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: pharmacare instance — 80/443 public, 22 from SshCidr only
+      GroupDescription: pharmacare instance - 80/443 public, 22 from SshCidr only
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - { IpProtocol: tcp, FromPort: 80,  ToPort: 80,  CidrIp: 0.0.0.0/0, Description: "HTTP" }
@@ -350,7 +350,7 @@ Resources:
 
 Outputs:
   PublicIp:
-    Description: Elastic IP — open this in a browser
+    Description: Elastic IP - open this in a browser
     Value: !Ref EIP
     Export: { Name: !Sub '${AWS::StackName}-PublicIp' }
 
