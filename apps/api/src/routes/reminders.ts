@@ -12,7 +12,7 @@ import {
 } from '../services/reminders';
 
 const router = Router();
-router.use(requireAuth);
+router.use(requireAuth, requireAdmin);
 
 router.get(
   '/',
@@ -48,7 +48,6 @@ const completeSchema = z.object({
 
 router.post(
   '/:customerId/complete',
-  requireAdmin,
   ah(async (req, res) => {
     const body = completeSchema.parse(req.body);
     const customer = await Customer.findById(req.params.customerId);

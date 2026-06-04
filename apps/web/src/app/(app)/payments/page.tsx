@@ -76,13 +76,14 @@ export default function PaymentsPage() {
 
   const summary = data?.summary ?? { received: 0, given: 0 };
   const payments = data?.payments ?? [];
+  const canEdit = user?.role === 'admin';
 
   return (
     <div>
       <PageHeader
         title="Payments"
         subtitle="Manual ledger of all customer transactions"
-        actions={<Button icon={Plus} onClick={() => setAdding(true)}>Record payment</Button>}
+        actions={canEdit ? <Button icon={Plus} onClick={() => setAdding(true)}>Record payment</Button> : undefined}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">

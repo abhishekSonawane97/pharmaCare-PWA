@@ -112,6 +112,10 @@ export default function RemindersPage() {
     }
   }
 
+  if (user && user.role !== 'admin') {
+    return <EmptyState icon={Bell} title="Admin only" body="You don't have access to this page." />;
+  }
+
   if (loading) return <div className="text-[13px] text-[var(--muted)]">Loading reminders…</div>;
 
   return (

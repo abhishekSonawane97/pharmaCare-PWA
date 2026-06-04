@@ -72,6 +72,7 @@ router.get(
 
 router.post(
   '/',
+  requireAdmin,
   ah(async (req, res) => {
     const body = paymentCreateSchema.parse(req.body);
     const date = new Date(body.date);
@@ -113,6 +114,7 @@ router.post(
 
 router.patch(
   '/:id',
+  requireAdmin,
   ah(async (req, res) => {
     const payment = await Payment.findById(req.params.id);
     if (!payment) throw notFound('Payment not found');
