@@ -319,11 +319,14 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
+              # Allow targeting the AWS-managed document (no tag — it's not ours)
               - Effect: Allow
                 Action: ssm:SendCommand
-                Resource:
-                  - !Sub arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript
-                  - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                Resource: !Sub arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript
+              # Restrict instance targets to our Project=pharmacare tag
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
                 Condition:
                   StringEquals:
                     aws:ResourceTag/Project: pharmacare
