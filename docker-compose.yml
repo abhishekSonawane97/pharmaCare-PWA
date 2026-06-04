@@ -11,7 +11,7 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_ACCESS_TTL: 15m
-      JWT_REFRESH_TTL: 7d
+      JWT_REFRESH_TTL: 365d
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@pharmacare.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme123}
       CORS_ORIGIN: http://localhost:3000
