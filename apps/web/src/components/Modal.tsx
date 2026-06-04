@@ -31,24 +31,24 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center pt-[10vh] px-4"
+      className="fixed inset-0 z-[100] flex items-start justify-center pt-[5vh] px-4"
       onMouseDown={onClose}
     >
       <div className="absolute inset-0 bg-[rgba(14,27,34,0.32)] backdrop-blur-[2px]" />
       <div
-        className={`relative w-full ${sizes} bg-white rounded-xl border border-[var(--border)] shadow-[0_24px_60px_-20px_rgba(14,27,34,0.35)] overflow-hidden`}
+        className={`relative w-full ${sizes} max-h-[90vh] flex flex-col bg-white rounded-xl border border-[var(--border)] shadow-[0_24px_60px_-20px_rgba(14,27,34,0.35)] overflow-hidden`}
         onMouseDown={e => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-[var(--border)]">
+        <div className="shrink-0 flex items-start justify-between px-5 pt-4 pb-3 border-b border-[var(--border)]">
           <div>
             <div className="text-[15px] font-semibold text-[var(--ink)] tracking-tight">{title}</div>
             {subtitle && <div className="text-[12.5px] text-[var(--muted)] mt-0.5">{subtitle}</div>}
           </div>
           {onClose && <IconButton icon={X} onClick={onClose} aria-label="Close" />}
         </div>
-        <div className="px-5 py-4 max-h-[70vh] overflow-y-auto">{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border)] bg-[var(--bg-soft)]">
+          <div className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border)] bg-[var(--bg-soft)]">
             {footer}
           </div>
         )}
