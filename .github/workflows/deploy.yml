@@ -182,7 +182,7 @@ jobs:
               Parameters: {
                 executionTimeout: ["600"],
                 commands: [
-                  "set -euxo pipefail",
+                  "set -eux",
                   "cd /opt/pharmacare",
                   "echo \($compose) | base64 -d > docker-compose.yml",
                   "echo \($nginx) | base64 -d > nginx.conf",
