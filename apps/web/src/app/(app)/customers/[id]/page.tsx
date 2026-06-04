@@ -201,7 +201,9 @@ export default function CustomerDetailPage() {
             <div className="text-[14px] font-semibold text-[var(--ink)]">Payment records</div>
             <div className="text-[12px] text-[var(--muted)]">Manual ledger — offline transactions only</div>
           </div>
-          <Button icon={Plus} size="sm" onClick={() => setPayModalOpen(true)}>Add record</Button>
+          {user?.role === 'admin' && (
+            <Button icon={Plus} size="sm" onClick={() => setPayModalOpen(true)}>Add record</Button>
+          )}
         </div>
         {payments.length === 0 ? (
           <EmptyState icon={Wallet} title="No payment records yet" body="Add a record when this customer pays in person." />
