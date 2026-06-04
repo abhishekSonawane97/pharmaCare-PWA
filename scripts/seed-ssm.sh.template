@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# scripts/seed-ssm.sh
+#
+# One-time seed of /pharmacare/env/* parameters in AWS SSM Parameter Store.
+# Run this AFTER `cloudformation deploy pharmacare-prod` completes (so the
+# instance role has read access) and BEFORE the first GitHub Actions deploy.
+#
+# Usage:
+#   AWS_PROFILE=pharmacare-boot ./scripts/seed-ssm.sh
+#
+# Re-running is safe (--overwrite is set). Sensitive values are SecureString
+# and are encrypted with the default aws/ssm KMS key.
+#
+# Note: This script is intentionally NOT committed (.gitignore excludes it).
+# It contains references to your secrets — keep it local.
+
+set -euo pipefail
+
+REGION="${AWS_REGION:-ap-south-1}"
+PREFIX="/pharmacare/env"
+
+# ─── EDIT THESE before running ────────────────────────────────────────────
+# Pull these from your local .env file (or generate fresh ones).
+# Fields marked REQUIRED must be set; the rest have safe defaults below.
+
+MONGO_URI=""                                # REQUIRED — paste from your local .env
+JWT_ACCESS_SECRET=""                        # REQUIRED — `openssl rand -base64 64`
+JWT_REFRESH_SECRET=""                       # REQUIRED — different from JWT_ACCESS_SECRET
+ADMIN_PASSWORD="admin123"                   # bootstrap admin password (changeable later)
+ADMIN_EMAIL="admin@pharmacare.local"        # bootstrap admin email
+CORS_ORIGIN="http://PLACEHOLDER-EIP"        # update with real EIP after CFN deploy
+
+# Tunables — defaults match docker-compose.yml
+JWT_ACCESS_TTL="15m"
+JWT_REFRESH_TTL="365d"
+NODE_ENV="production"
+PORT="4000"
+TZ_VAL="Asia/Kolkata"
+API_PROXY_TARGET="http://api:4000"
+# ──────────────────────────────────────────────────────────────────────────
+
+# Sanity checks
+for var in MONGO_URI JWT_ACCESS_SECRET JWT_REFRESH_SECRET ADMIN_PASSWORD; do
+  if [[ -z "${!var}" ]]; then
+    echo "✗ $var is empty — edit this script and fill it in before running."
+    exit 1
+  fi
+done
+
+# Helpers
+put_secure() {
+  local name="$1" value="$2"
+  aws ssm put-parameter --region "$REGION" --name "${PREFIX}/${name}" \
+    --type SecureString --value "$value" --overwrite >/dev/null
+  printf "  \033[32m✓\033[0m  %-25s (SecureString)\n" "$name"
+}
+
+put_plain() {
+  local name="$1" value="$2"
+  aws ssm put-parameter --region "$REGION" --name "${PREFIX}/${name}" \
+    --type String --value "$value" --overwrite >/dev/null
+  printf "  \033[32m✓\033[0m  %-25s (String)\n" "$name"
+}
+
+echo "Seeding ${PREFIX}/* in region $REGION"
+echo
+
+# Secrets
+put_secure MONGO_URI           "$MONGO_URI"
+put_secure JWT_ACCESS_SECRET   "$JWT_ACCESS_SECRET"
+put_secure JWT_REFRESH_SECRET  "$JWT_REFRESH_SECRET"
+put_secure ADMIN_PASSWORD      "$ADMIN_PASSWORD"
+
+# Non-sensitive
+put_plain  ADMIN_EMAIL         "$ADMIN_EMAIL"
+put_plain  CORS_ORIGIN         "$CORS_ORIGIN"
+put_plain  JWT_ACCESS_TTL      "$JWT_ACCESS_TTL"
+put_plain  JWT_REFRESH_TTL     "$JWT_REFRESH_TTL"
+put_plain  NODE_ENV            "$NODE_ENV"
+put_plain  PORT                "$PORT"
+put_plain  TZ                  "$TZ_VAL"
+put_plain  API_PROXY_TARGET    "$API_PROXY_TARGET"
+
+echo
+echo "Done. Verify with:"
+echo "  aws ssm get-parameters-by-path --path ${PREFIX} --region $REGION --query 'Parameters[*].Name' --output table"
+echo
+echo "Reminder: after CFN deploy gives you the Elastic IP, update CORS_ORIGIN:"
+echo "  aws ssm put-parameter --name ${PREFIX}/CORS_ORIGIN --value http://<EIP> --type String --overwrite --region $REGION"

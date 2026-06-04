@@ -1,0 +1,69 @@
+# Production docker-compose for PharmaCare on EC2.
+# Lives in the repo, copied to /opt/pharmacare/docker-compose.yml by the GHA
+# deploy workflow. Differs from the root docker-compose.yml (which is for local
+# dev) in that it pulls pre-built images from ECR, fronts both services with
+# Nginx, and exposes nothing on 3000/4000 directly.
+#
+# Required env vars (populated from /opt/pharmacare/.env, written by the deploy
+# workflow from SSM Parameter Store):
+#   ECR_API_URI, ECR_WEB_URI, IMAGE_TAG  (set by deploy step)
+#   plus the api runtime config (MONGO_URI, JWT_*, ADMIN_*, CORS_ORIGIN, ...)
+#
+# Atlas is remote — there is no mongo service here.
+
+services:
+  api:
+    image: ${ECR_API_URI}:${IMAGE_TAG}
+    restart: unless-stopped
+    env_file: /opt/pharmacare/.env
+    expose: ["4000"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  web:
+    image: ${ECR_WEB_URI}:${IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      # API_PROXY_TARGET is read by next.config.js. The browser hits Nginx,
+      # which proxies /api/* to the api container, so this value is only used
+      # by the Next.js server-side rewrite (effectively unused given the Nginx
+      # single-origin setup, but harmless and matches the local dev pattern).
+      API_PROXY_TARGET: http://api:4000
+      # NEXT_PUBLIC_API_URL is baked into the client bundle at docker build
+      # time (build-args in the GHA workflow). Setting it here at runtime would
+      # be a no-op for the browser bundle.
+    expose: ["3000"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_started
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"   # reserved for future TLS once a domain is added
+    volumes:
+      - /opt/pharmacare/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

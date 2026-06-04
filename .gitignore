@@ -31,3 +31,13 @@ coverage/
 backup-*.gz
 *.dump
 
+# Filled-in version of the SSM seed script (contains secrets at runtime).
+# Copy scripts/seed-ssm.sh.template -> scripts/seed-ssm.sh, fill, run, then
+# leave the filled file local only.
+scripts/seed-ssm.sh
+
+# AWS local credential files / SSH keys (defensive)
+.aws-credentials
+.aws-config
+*.pem
+

@@ -1,0 +1,271 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to deploy (defaults to current branch)
+        required: false
+        default: ''
+
+# Required for the OIDC token used to assume the AWS role
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_API_REPO: pharmacare-api
+  ECR_WEB_REPO: pharmacare-web
+
+jobs:
+  deploy:
+    name: Build, push, deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up QEMU (for arm64 cross-build)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tag
+        id: tag
+        run: echo "sha=sha-$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push api image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/api
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_API_REPO }}:${{ steps.tag.outputs.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_API_REPO }}:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build & push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/web
+          platforms: linux/arm64
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=/api
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_WEB_REPO }}:${{ steps.tag.outputs.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_WEB_REPO }}:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Resolve EC2 instance + Elastic IP
+        id: ec2
+        run: |
+          IID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Project,Values=pharmacare" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].InstanceId' --output text)
+          IP=$(aws ec2 describe-instances --instance-ids "$IID" \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+          if [[ -z "$IID" || "$IID" == "None" ]]; then
+            echo "::error::No EC2 instance found with tag Project=pharmacare. Run CFN deploy first."
+            exit 1
+          fi
+          echo "iid=$IID" >> "$GITHUB_OUTPUT"
+          echo "ip=$IP" >> "$GITHUB_OUTPUT"
+          echo "Resolved instance $IID @ $IP"
+
+      - name: Build SSM SendCommand payload
+        id: payload
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ steps.tag.outputs.sha }}
+          IID: ${{ steps.ec2.outputs.iid }}
+        run: |
+          COMPOSE_B64=$(base64 -w0 deploy/docker-compose.yml)
+          NGINX_B64=$(base64 -w0 deploy/nginx.conf)
+
+          # The remote deploy script — runs on the EC2 instance.
+          # Self-contained: pulls env from SSM, logs into ECR, pulls + restarts.
+          cat > /tmp/remote-deploy.sh <<'REMOTE_EOF'
+          #!/usr/bin/env bash
+          set -euxo pipefail
+          cd /opt/pharmacare
+
+          # Fetch all /pharmacare/env/* params and emit KEY=VALUE lines.
+          # Using a python one-liner to handle multi-line values safely.
+          aws ssm get-parameters-by-path \
+            --path /pharmacare/env \
+            --recursive --with-decryption \
+            --region "$AWS_REGION" \
+            --query 'Parameters[*].{N:Name,V:Value}' \
+            --output json | python3 -c '
+          import json, sys, os
+          for p in json.load(sys.stdin):
+              key = p["N"].rsplit("/", 1)[-1]
+              # .env shell-safe: wrap value in double quotes, escape backslashes + dquotes + dollar signs
+              v = p["V"].replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")
+              print(f"{key}=\"{v}\"")
+          ' > .env.new
+
+          # Append deploy-step-specific vars
+          {
+            echo "ECR_API_URI=\"$ECR_API_URI\""
+            echo "ECR_WEB_URI=\"$ECR_WEB_URI\""
+            echo "IMAGE_TAG=\"$IMAGE_TAG\""
+          } >> .env.new
+
+          mv .env.new .env
+          chmod 600 .env
+
+          # ECR login (registry host = first segment of the URI)
+          REGISTRY_HOST="$(echo "$ECR_API_URI" | cut -d/ -f1)"
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$REGISTRY_HOST"
+
+          # Pull + roll
+          docker compose pull
+          docker compose up -d --remove-orphans
+
+          # Trim old images (keeps healthy running ones)
+          docker image prune -af --filter "until=24h"
+
+          # Final local health check (compose healthchecks are already in motion)
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS http://localhost/api/health | grep -q '"status":"ok"'; then
+              echo "[deploy] health ok"; break
+            fi
+            echo "[deploy] waiting for health... ($i/10)"
+            sleep 5
+          done
+
+          echo "[deploy] done $(date -u +%FT%TZ)"
+          REMOTE_EOF
+          REMOTE_B64=$(base64 -w0 /tmp/remote-deploy.sh)
+
+          # Construct the SSM SendCommand JSON via jq to avoid escaping bugs.
+          jq -n \
+            --arg iid "$IID" \
+            --arg comment "deploy $TAG" \
+            --arg compose "$COMPOSE_B64" \
+            --arg nginx "$NGINX_B64" \
+            --arg deploy "$REMOTE_B64" \
+            --arg region "$AWS_REGION" \
+            --arg api_uri "$REGISTRY/$ECR_API_REPO" \
+            --arg web_uri "$REGISTRY/$ECR_WEB_REPO" \
+            --arg tag "$TAG" \
+            '{
+              DocumentName: "AWS-RunShellScript",
+              InstanceIds: [$iid],
+              Comment: $comment,
+              Parameters: {
+                executionTimeout: ["600"],
+                commands: [
+                  "set -euxo pipefail",
+                  "cd /opt/pharmacare",
+                  "echo \($compose) | base64 -d > docker-compose.yml",
+                  "echo \($nginx) | base64 -d > nginx.conf",
+                  "echo \($deploy) | base64 -d > /tmp/remote-deploy.sh",
+                  "chmod +x /tmp/remote-deploy.sh",
+                  "export AWS_REGION=\($region)",
+                  "export ECR_API_URI=\($api_uri)",
+                  "export ECR_WEB_URI=\($web_uri)",
+                  "export IMAGE_TAG=\($tag)",
+                  "/tmp/remote-deploy.sh"
+                ]
+              }
+            }' > /tmp/ssm-cmd.json
+
+      - name: Send deploy command
+        id: send
+        run: |
+          CMD_ID=$(aws ssm send-command --cli-input-json file:///tmp/ssm-cmd.json \
+            --query 'Command.CommandId' --output text)
+          echo "cmd_id=$CMD_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command ID: $CMD_ID"
+
+      - name: Wait for SSM command to finish
+        run: |
+          aws ssm wait command-executed \
+            --command-id ${{ steps.send.outputs.cmd_id }} \
+            --instance-id ${{ steps.ec2.outputs.iid }} \
+            || true   # don't fail here; we'll fetch the output regardless
+
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id ${{ steps.send.outputs.cmd_id }} \
+            --instance-id ${{ steps.ec2.outputs.iid }} \
+            --query 'Status' --output text)
+          echo "SSM final status: $STATUS"
+
+          echo "--- stdout ---"
+          aws ssm get-command-invocation \
+            --command-id ${{ steps.send.outputs.cmd_id }} \
+            --instance-id ${{ steps.ec2.outputs.iid }} \
+            --query 'StandardOutputContent' --output text | tail -100
+
+          if [[ "$STATUS" != "Success" ]]; then
+            echo "--- stderr ---"
+            aws ssm get-command-invocation \
+              --command-id ${{ steps.send.outputs.cmd_id }} \
+              --instance-id ${{ steps.ec2.outputs.iid }} \
+              --query 'StandardErrorContent' --output text | tail -100
+            exit 1
+          fi
+
+      - name: Smoke test (from runner against Elastic IP)
+        run: |
+          IP=${{ steps.ec2.outputs.ip }}
+          echo "Testing http://$IP/api/health ..."
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            BODY=$(curl -fsS --max-time 10 "http://$IP/api/health" || echo "")
+            if echo "$BODY" | grep -q '"status":"ok"'; then
+              echo "✓ api healthy: $BODY"
+              break
+            fi
+            echo "  attempt $i: not ready (body: $BODY)"
+            sleep 6
+            if [[ $i -eq 10 ]]; then
+              echo "::error::api never became healthy after deploy"
+              exit 1
+            fi
+          done
+
+          echo "Testing http://$IP/ ..."
+          HTTP=$(curl -fsS -o /dev/null -w "%{http_code}" "http://$IP/")
+          if [[ "$HTTP" != "200" ]]; then
+            echo "::error::web returned HTTP $HTTP (expected 200)"
+            exit 1
+          fi
+          echo "✓ web returned 200"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Deploy result"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Image tag: \`${{ steps.tag.outputs.sha }}\`"
+            echo "- Instance: \`${{ steps.ec2.outputs.iid }}\`"
+            echo "- Public URL: http://${{ steps.ec2.outputs.ip }}"
+          } >> "$GITHUB_STEP_SUMMARY"
