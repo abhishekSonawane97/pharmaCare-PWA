@@ -39,14 +39,29 @@ export function getTenantConnection(tenant: TenantId): Connection {
 /**
  * Eagerly connect to every known tenant. Called once at API startup.
  *
- * Surfaces bad URIs or unreachable clusters at boot rather than per-request.
- * If any tenant fails to connect, the API exits (let the orchestrator restart).
+ * Tenants whose Mongo URI env var is missing are logged + SKIPPED at boot —
+ * the API still starts, but those tenants will reject login attempts with a
+ * clear error. This lets us deploy multi-tenant code to environments that
+ * haven't been onboarded for the new tenant yet (e.g. the Render fallback
+ * during the rollout window).
+ *
+ * Tenants whose URI is configured but the cluster is unreachable will surface
+ * the error in the logs; the connection retries automatically.
  */
 export async function connectAllTenants(): Promise<void> {
   await Promise.all(
     TENANT_IDS.map(async t => {
-      const conn = getTenantConnection(t);
-      await conn.asPromise();
+      try {
+        const conn = getTenantConnection(t);
+        await conn.asPromise();
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        if (msg.includes('Missing required env var')) {
+          console.warn(`[mongo:${t}] SKIPPED: ${msg}. Tenant will be unavailable until env is set.`);
+        } else {
+          console.error(`[mongo:${t}] initial connect failed:`, msg);
+        }
+      }
     })
   );
 }

@@ -28,10 +28,8 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     if (!payload.tenant) {
       return next(unauthorized('Token missing tenant claim'));
     }
-    try {
-      attachTenantFromJwt(req, payload.tenant);
-    } catch (err) {
-      return next(unauthorized('Token carries unknown tenant'));
+    if (!attachTenantFromJwt(req, payload.tenant)) {
+      return next(unauthorized('Token carries unknown or unavailable tenant'));
     }
 
     const { User } = modelsFor(req);
