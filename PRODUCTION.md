@@ -1,346 +1,407 @@
-# Production migration guide
+# Operating PharmaCare in production
 
-> **Audience:** the engineer responsible for taking this app from "Render free + Atlas M0" (current dev setup) to "EC2 + Atlas M10 + backups + monitoring" (real pharmacy use). Read once end-to-end before starting; it's all reversible if something goes wrong.
+> **Audience:** the engineer on-call. This is the runbook — daily ops, common tasks, rollback procedures, hardening checklist. For *how to deploy*, see [DEPLOY.md](DEPLOY.md). For *how the system is built*, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-This document is **not** the original deployment guide — see [`DEPLOY.md`](DEPLOY.md) for that. This is specifically about **upgrading** from the dev setup to production-grade infrastructure.
+## Current state (snapshot)
 
----
-
-## When to upgrade
-
-Trigger criteria — if **any** of these are true, it's time for Mode 2:
-
-- 🔴 **Real customer PII is going into the database** (a paying pharmacy's actual customers, not test data)
-- 🔴 **The pharmacist relies on it daily** for actual operations (not just "trying it out")
-- 🟡 Atlas storage usage > 200 MB (you're approaching the 512 MB free cap)
-- 🟡 You've started paying for any AWS / Atlas / Cloudflare add-on
-- 🟡 The pharmacist has complained about cold starts more than once
-
-Until **none** of these are true, Mode 1 is fine. Don't over-engineer.
-
----
-
-## What changes (and what doesn't)
-
-### Unchanged
-- The code itself. Same `apps/api` and `apps/web`. Same Docker images.
-- The reminder flow. Pharmacist's phone still sends the messages.
-- The seed script. Atlas Mongo behaves identically on M10 vs M0.
-- Local development workflow. `make up` still works exactly the same.
-
-### What changes
-- **Where compute runs:** Render → AWS EC2 (or Hetzner, or Oracle Cloud Always Free as alternative)
-- **Database tier:** Atlas M0 → Atlas M10 (continuous backups, dedicated CPU, SLA)
-- **TLS termination:** Render's auto-Let's Encrypt → Caddy on EC2 (also auto-Let's Encrypt)
-- **DNS + edge:** none → Cloudflare (free)
-- **Backups:** none → Atlas built-in + daily `mongodump` mirror to S3
-- **Monitoring:** none → Sentry (errors) + UptimeRobot (uptime)
-- **Security hardening:** see checklist at end of this doc
+| | |
+|---|---|
+| AWS account | `059567100086` |
+| Region | `ap-south-1` (Mumbai) |
+| CloudFormation stack | `pharmacare-prod` |
+| EC2 instance | `i-0e4e1b0ced7aeb3cb` (t4g.small, Ubuntu 24.04, ARM64) |
+| Elastic IP / live URL | `13.205.80.177` → http://13.205.80.177 |
+| ECR repos | `pharmacare-api`, `pharmacare-web` (lifecycle: 10 sha-tags retained) |
+| Atlas cluster | `pharmacare.uoxcurq.mongodb.net` (M0 free, AWS Mumbai) |
+| Atlas IP allowlist | `0.0.0.0/0` (TODO: tighten to EIP/32 — see [Atlas allowlist](#atlas-allowlist)) |
+| Budget alerts | $10/$20/.../$100 via AWS Budgets → `healthcare.pharmacy9988@gmail.com` |
+| Render fallback | https://pharmacare-web.onrender.com (kept parallel, same Atlas) |
+| GHA deploy role | `arn:aws:iam::059567100086:role/pharmacare-gha-deploy` (OIDC) |
+| GitHub secret | `AWS_DEPLOY_ROLE_ARN` (= the role ARN above) |
+| Admin login | `shaikhabusaeed1@gmail.com` / `admin123` |
 
 ---
 
-## Migration plan — step by step
+## Quick access cheatsheet
 
-Read all steps before starting. Total elapsed time: **~3 hours** of focused work. Plan for evening/weekend; expect ~10 minutes of customer-facing downtime during DNS cutover.
+```bash
+# Set AWS profile once per shell
+export AWS_PROFILE=pharmacare-boot   # or whatever profile holds your AWS creds
 
-### Step 0 — Pre-flight (do this BEFORE touching anything)
+# SSH break-glass (rarely needed; SSM Session Manager preferred)
+ssh -i ~/.ssh/pharmacare-keypair.pem ubuntu@13.205.80.177
 
-1. **Take a fresh backup of current Atlas data:**
+# SSM Session Manager (preferred — no SSH port, auditable)
+aws ssm start-session --target i-0e4e1b0ced7aeb3cb --region ap-south-1
+
+# Live container status
+aws ssm send-command --instance-ids i-0e4e1b0ced7aeb3cb \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=["cd /opt/pharmacare && docker compose ps"]' \
+  --region ap-south-1
+
+# Live logs (last 100 lines per service)
+aws ssm send-command --instance-ids i-0e4e1b0ced7aeb3cb \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=["cd /opt/pharmacare && docker compose logs --tail=100"]' \
+  --region ap-south-1
+
+# Health check
+curl -s http://13.205.80.177/api/health
+```
+
+---
+
+## Daily / weekly / monthly checks
+
+| Cadence | Task | How |
+|---|---|---|
+| Daily (passive) | Monitor budget alert emails | Inbox of `healthcare.pharmacy9988@gmail.com` |
+| Daily (passive) | Monitor GHA deploy results | GitHub repo → Actions tab; failures email you |
+| Weekly | Smoke test `/api/health` | `curl http://13.205.80.177/api/health` |
+| Weekly | Verify Atlas storage usage | Atlas dashboard → cluster → Metrics tab |
+| Monthly | Apply Ubuntu security patches | SSM session → `sudo apt update && sudo apt upgrade -y && sudo reboot` |
+| Monthly | Confirm ECR retention is working | `aws ecr describe-images --repository-name pharmacare-api --query 'length(imageDetails)'` should be ≤10 |
+| Quarterly | Test backup restore | Take `mongodump` → restore to a scratch Atlas project → verify counts |
+| Quarterly | Rotate JWT secrets | New `openssl rand -base64 64` for both → update SSM → trigger redeploy. Forces all sessions to re-login. |
+| Yearly | Rotate the EC2 SSH keypair | Generate new, attach via AWS Systems Manager, retire old |
+
+---
+
+## Common tasks
+
+### Push a code change
+
+```bash
+git add … && git commit -m "…" && git push origin main
+```
+
+GHA fires automatically. See [DEPLOY.md](DEPLOY.md). No manual steps.
+
+### Rollback to a previous SHA
+
+```bash
+git log --oneline -10
+gh workflow run deploy.yml --ref <commit-sha>
+```
+
+Takes ~10 seconds (cached image). Atlas data untouched.
+
+### Update an env var (e.g. ADMIN_EMAIL, CORS_ORIGIN)
+
+```bash
+# 1. Update SSM
+aws ssm put-parameter --name /pharmacare/env/<NAME> \
+  --value "<new value>" --type String --overwrite --region ap-south-1
+
+# 2. Trigger redeploy (so the new value is read into /opt/pharmacare/.env)
+gh workflow run deploy.yml --ref main
+```
+
+For `SecureString` params (secrets like `MONGO_URI`, `JWT_*_SECRET`, `ADMIN_PASSWORD`), use `--type SecureString` instead of `--type String`.
+
+### Restart containers without redeploying
+
+```bash
+aws ssm send-command --instance-ids i-0e4e1b0ced7aeb3cb \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=["cd /opt/pharmacare && docker compose restart"]' \
+  --region ap-south-1
+```
+
+### Reset admin password
+
+This requires connecting to Atlas and updating the user's `passwordHash`. There's no UI flow for forgot-password.
+
+```bash
+# Via the running api container (uses bcryptjs already installed)
+aws ssm send-command --instance-ids i-0e4e1b0ced7aeb3cb \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=["docker exec pharmacare-api-1 node -e \"const m=require(\\\"mongoose\\\"),b=require(\\\"bcryptjs\\\");(async()=>{await m.connect(process.env.MONGO_URI);const U=m.model(\\\"User\\\",new m.Schema({},{strict:false}),\\\"users\\\");const u=await U.findOne({role:\\\"admin\\\"});u.passwordHash=await b.hash(\\\"<NEW-PASSWORD>\\\",10);await u.save();console.log(\\\"OK\\\");await m.disconnect();})()\""]' \
+  --region ap-south-1
+```
+
+Replace `<NEW-PASSWORD>` in the snippet. The user can change it via the UI later if a profile-edit page exists (currently it doesn't).
+
+### Add a new employee directly (skip the signup-approval flow)
+
+Log in as admin → Employees → **Add employee** → fill the form → set role. They're created with `status=active` immediately, no approval needed.
+
+### View the audit trail
+
+Log in as admin → **Activity** page. Or query Mongo directly:
+```bash
+docker exec pharmacare-api-1 node -e "..."  # similar pattern to password reset
+```
+
+### Re-seed the database (DESTRUCTIVE)
+
+⚠️ **Wipes all collections.** Only do this on a fresh DB or with explicit consent.
+
+```bash
+# Run from your local machine — it executes against the shared Atlas
+docker compose exec -e SEED_FORCE=true \
+  -e ADMIN_EMAIL=shaikhabusaeed1@gmail.com \
+  -e ADMIN_PASSWORD=admin123 \
+  api npm run seed
+```
+
+After running: the live site (both EC2 and Render) immediately reflects the new data.
+
+### Take a manual DB backup
+
+```bash
+mongodump --uri="$MONGO_URI" --archive=./backup-$(date +%F).gz --gzip
+```
+
+Store the archive somewhere safe (S3, off-machine).
+
+### Restore from a backup
+
+```bash
+mongorestore --uri="$MONGO_URI" --archive=./backup-2026-06-04.gz --gzip --drop
+```
+
+The `--drop` flag wipes existing collections before restoring. Be sure you have the right archive.
+
+---
+
+## Atlas allowlist tightening
+
+**Current state:** Atlas IP allowlist is `0.0.0.0/0` (open to the internet). The Atlas database user's password is the only thing protecting customer + medical data. This is acceptable for a dev/testing parallel-cutover phase but **must be tightened** before any real pharmacy data goes in.
+
+### Cutover sequence (do this after 24h of stable EC2 + Render parallel run)
+
+1. Atlas → Network Access → Add IP Address → enter `13.205.80.177/32` → comment "AWS EC2 prod" — **but keep `0.0.0.0/0` for now**.
+2. Wait 24h. Both EC2 and Render should still connect (they use the same Atlas user).
+3. Verify EC2 still talks to Atlas:
    ```bash
-   mongodump --uri="$MONGO_URI" --archive=./pre-prod-migration-$(date +%F).gz --gzip
+   curl http://13.205.80.177/api/health  # → mongoConnected:true
    ```
-   Keep this archive safe. It's your rollback fuel.
+4. If yes: Atlas → Network Access → delete the `0.0.0.0/0` entry. Only `13.205.80.177/32` remains.
+5. Render will **stop working** the moment `0.0.0.0/0` is removed — Render's free tier has no static egress IPs.
+6. If you want Render to keep working too, take the egress IP ranges from https://render.com/docs/static-outbound-ip-addresses and allowlist those `/32`s. They change quarterly — fragile, not recommended. Better to decommission Render once EC2 is verified.
 
-2. **Document current state:**
-   - Capture `https://pharmacare-web.onrender.com` (current URL)
-   - Note who uses it daily and warn them about the 10-minute cutover window
-   - Snapshot the Render env vars (Settings → Environment → screenshot all of them)
+### Rollback if api stops connecting
 
-3. **Decide your domain.** You need one. Suggestions:
-   - `.in` from a registrar (Namecheap, BigRock) — ~₹100–500/yr
-   - `.com` — ~₹1,000/yr
-   - For a non-public internal tool, even `.online` or `.app` works
+```bash
+# Re-add 0.0.0.0/0 in Atlas Network Access — api reconnects within ~30 seconds
+# (mongoose default retry on disconnect)
+```
 
 ---
 
-### Step 1 — Atlas M0 → M10 upgrade (15 min, no downtime)
+## Decommission Render (post-cutover)
 
-The Atlas in-place upgrade is non-destructive — same data, same connection string.
+After at least **1 week** of stable production traffic on EC2 with no rollback needed:
 
-1. Atlas dashboard → your cluster → ⚙️ → **Edit Configuration**
-2. Cluster Tier → **M10** ($57/mo)
-3. Cloud Provider: AWS, Region: Mumbai (ap-south-1) — match existing
-4. Backup: **Enable Continuous Cloud Backup** (this is what you're paying for)
-5. **Review Changes** → **Apply Changes**
-6. Wait ~5–15 minutes. Atlas does a rolling upgrade. Connection string stays the same.
-
-**Verify:**
-- Atlas Backup tab now shows daily snapshots scheduled
-- Cluster metrics tab shows dedicated CPU (no more "shared")
-
-**Cost trigger:** the moment you click Apply, billing begins. ~$57/mo prorated.
+1. Update DNS TTL to 60s on any domain pointing at Render (currently there is none — just the `*.onrender.com` URL).
+2. Watch UptimeRobot / GHA results for 1 week. No regressions.
+3. Render dashboard → `pharmacare-web` → Settings → **Delete Service**. Same for `pharmacare-api`.
+4. **Revoke the Render API key** (was committed in some session — find and rotate; future engineers shouldn't reuse the leaked key).
+5. Update [README.md](README.md) and [ARCHITECTURE.md](ARCHITECTURE.md) to remove Render references (or keep as historical reference).
+6. Atlas: tighten IP allowlist to EC2 EIP only (see above).
 
 ---
 
-### Step 2 — Provision the EC2 instance (30 min)
+## Monitoring
 
-1. AWS Console → EC2 → **Launch Instance**
-   - **Name:** `pharmacare-prod`
-   - **AMI:** Amazon Linux 2023 (or Ubuntu 24.04 LTS — easier for most devs)
-   - **Type:** `t3.nano` (cheapest, fine for small pharmacy) or `t3.small` (recommended buffer)
-   - **Key pair:** generate a new one, download the `.pem` and chmod 600
-   - **Network:** default VPC, public subnet, **enable auto-assign public IP**
-   - **Security group rules:** SSH (22) from your IP only, HTTP (80) + HTTPS (443) from anywhere
-   - **Storage:** 20 GB gp3 (default 8 GB is too tight if you keep backups locally)
-2. Launch — note the public IP
+### What's set up today
 
-3. SSH in and install Docker + Docker Compose:
-   ```bash
-   ssh -i pharmacare.pem ubuntu@<public-ip>
-   sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
-   sudo usermod -aG docker ubuntu
-   newgrp docker
-   ```
+- **AWS Budgets** — `pharmacare-every-10-dollars` budget with 10 thresholds (10%, 20%, …, 100% of $100/mo). Email: `healthcare.pharmacy9988@gmail.com`. Fires when actual usage burn crosses each threshold, ignoring the $100 Activate credit.
+- **GitHub Actions failure notifications** — deploy failures email the committer via the default GitHub notification settings.
+- **Docker `restart: unless-stopped`** — every container auto-restarts on crash.
+- **API `/api/health` endpoint** — returns `{status, uptime, mongoConnected}` for external probes.
 
-4. Clone the repo:
-   ```bash
-   git clone git@github.com:abhishekSonawane97/pharmacare.git
-   cd pharmacare
-   cp .env.example .env
-   nano .env    # fill in MONGO_URI (same as Render), JWT secrets, ADMIN credentials
-   ```
+### What's NOT set up yet (recommended additions)
 
-5. Test the build (don't expose to internet yet):
-   ```bash
-   make build
-   make up
-   curl http://localhost:4000/api/health    # should return {"status":"ok",...}
-   ```
+| Tool | What it gives | Setup time | Cost |
+|---|---|---|---|
+| **UptimeRobot** (free) | 5-min HTTP ping on `/api/health` with email/SMS alerts on down | 10 min | ₹0 |
+| **CloudWatch alarm** on `StatusCheckFailed_Instance` | EC2 hardware/hypervisor failure detection (rare but fatal) | 5 min | ~₹10/mo |
+| **Sentry** (free tier) | Server + client exception capture with stack traces | 20 min | ₹0 (up to 5k errors/mo) |
+| **Cron `mongodump` → S3** | Daily DB backup (Atlas M0 has no automatic backups!) | 30 min | ~₹40/mo |
+| **CloudWatch Logs agent** | Container stdout/stderr collected into CloudWatch | 20 min | ~₹50/mo per 5 GB |
+
+These are listed in priority order. **The `mongodump` → S3 cron is the highest-priority gap** — without it, any data loss is permanent.
 
 ---
 
-### Step 3 — Install Caddy as reverse proxy + TLS terminator (15 min)
+## Backups
 
-Caddy auto-provisions Let's Encrypt certificates and renews them. No manual cert wrangling.
+⚠️ **Atlas M0 has NO automatic backups.** This is the single biggest production risk.
 
-1. Install:
-   ```bash
-   sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
-   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-   sudo apt update && sudo apt install -y caddy
-   ```
+### Manual backup (one-off)
 
-2. Configure: `sudo nano /etc/caddy/Caddyfile`
-   ```
-   pharmacare.yourdomain.in {
-       # Web app
-       handle {
-           reverse_proxy localhost:3000
-       }
-       # API
-       handle_path /api/* {
-           reverse_proxy localhost:4000
-           rewrite * /api{path}
-       }
-   }
-   ```
-   Replace `pharmacare.yourdomain.in` with your actual domain.
+```bash
+mongodump --uri="$MONGO_URI" --archive=./backup-$(date +%F).gz --gzip
+# Store the archive off-machine: S3, Backblaze, even Google Drive
+```
 
-3. Reload:
-   ```bash
-   sudo systemctl restart caddy
-   sudo systemctl enable caddy
-   ```
+### Automated backup (recommended setup)
 
-Caddy will fail until DNS points to this EC2 instance (next step). That's fine.
+A daily cron on the EC2 instance dumps Atlas → uploads to S3. Outline:
 
----
-
-### Step 4 — DNS via Cloudflare (10 min, this is the cutover moment)
-
-1. **Add domain to Cloudflare** (free): https://dash.cloudflare.com → Add site → enter your domain → free plan
-2. Cloudflare gives you 2 nameservers — go to your registrar and replace the existing nameservers with these. **Wait 5–60 minutes for propagation.**
-3. Once propagated, in Cloudflare DNS settings:
-   - Add **A record**: `pharmacare` → `<EC2 public IP>` → **Proxy status: DNS only** (orange cloud OFF initially)
-4. Test SSL: open `https://pharmacare.yourdomain.in` — Caddy should auto-fetch a Let's Encrypt cert and serve. Login should work.
-5. Once verified, **turn on Cloudflare proxy** (orange cloud ON). Now you get DDoS + edge caching.
-
-**This is the cutover moment.** Tell the pharmacist to use the new URL. Keep the Render URL alive for one more week as a fallback.
-
----
-
-### Step 5 — Lock down Atlas IP allowlist (5 min)
-
-The Atlas DB is currently open to `0.0.0.0/0` — the entire internet. Replace with the EC2's public IP only.
-
-1. Atlas → Network Access → Add IP Address → enter `<EC2 public IP>/32` → comment "Production EC2"
-2. Test that the api on EC2 still connects: `curl https://pharmacare.yourdomain.in/api/health`
-3. **Only after verifying:** delete the `0.0.0.0/0` entry
-
-**Verify:** `dig +short pharmacare.yourdomain.in` should resolve to Cloudflare's edge (not your EC2 IP, since proxy is on).
-
-For extra security, set up [VPC peering between EC2 and Atlas](https://www.mongodb.com/docs/atlas/security-vpc-peering/) — but only if you're comfortable with AWS VPC routing tables. Optional.
-
----
-
-### Step 6 — Daily backups to S3 (20 min)
-
-Atlas's built-in backups (now enabled on M10) protect against Atlas-side disasters. The S3 mirror protects against **Atlas-account-level disasters** (deleted cluster, lost account access, billing issue).
-
-1. Create S3 bucket: AWS → S3 → Create bucket
-   - Name: `pharmacare-backups-{random}`
-   - Region: Mumbai (ap-south-1)
-   - Block all public access: ✅
-   - Encryption: SSE-S3 (default)
-2. Create IAM user with `s3:PutObject` only on this bucket. Save Access Key + Secret.
-3. On EC2:
-   ```bash
-   sudo apt install -y awscli mongodb-mongosh
-   aws configure   # paste IAM key + secret + region ap-south-1
-   ```
-4. Create `/usr/local/bin/pharmacare-backup.sh`:
+1. Create S3 bucket: `aws s3 mb s3://pharmacare-backups-<random> --region ap-south-1`
+2. Add lifecycle: move objects to Glacier after 30 days, delete after 365 days
+3. Create IAM role with `s3:PutObject` on the bucket only; attach to EC2 instance role
+4. Add `/usr/local/bin/pharmacare-backup.sh`:
    ```bash
    #!/usr/bin/env bash
    set -euo pipefail
-   set -a; source /home/ubuntu/pharmacare/.env; set +a
+   set -a; source /opt/pharmacare/.env; set +a
    DATE=$(date +%F-%H%M)
    ARCHIVE=/tmp/pharmacare-$DATE.gz
    mongodump --uri="$MONGO_URI" --archive="$ARCHIVE" --gzip
-   aws s3 cp "$ARCHIVE" "s3://pharmacare-backups-{random}/" --storage-class STANDARD_IA
+   aws s3 cp "$ARCHIVE" "s3://pharmacare-backups-<random>/" --storage-class STANDARD_IA
    rm "$ARCHIVE"
    ```
-5. `chmod +x /usr/local/bin/pharmacare-backup.sh`
-6. Add to cron: `crontab -e`
-   ```
-   30 3 * * * /usr/local/bin/pharmacare-backup.sh >> /var/log/pharmacare-backup.log 2>&1
-   ```
-   (runs daily at 03:30 server time)
-7. Run it once manually to verify the first backup lands in S3.
+5. Crontab: `30 3 * * * /usr/local/bin/pharmacare-backup.sh >> /var/log/pharmacare-backup.log 2>&1`
 
-**Add S3 lifecycle rule** for cost control:
-- Move backups older than 30 days to Glacier (Cheaper)
-- Delete backups older than 365 days
+This is **listed but not yet implemented**. Add it before storing real customer data.
 
 ---
 
-### Step 7 — Monitoring (15 min)
+## Security hardening checklist
 
-#### UptimeRobot (uptime alerts)
-1. Sign up: https://uptimerobot.com (free)
-2. Add Monitor: HTTP keyword
-   - URL: `https://pharmacare.yourdomain.in/api/health`
-   - Keyword: `"status":"ok"`
-   - Interval: 5 minutes
-3. Add yourself + pharmacy owner as alert contacts (email/WhatsApp)
+These are the items from the original `PRODUCTION.md` migration plan. Items I marked as **done** are in the current setup; **pending** items are gaps to close before serving real customers.
 
-#### Sentry (error tracking)
-1. Sign up: https://sentry.io (free tier = 5k errors/month)
-2. Create two projects: `pharmacare-api` (Node.js), `pharmacare-web` (Next.js)
-3. Install in api:
-   ```bash
-   cd apps/api
-   npm install @sentry/node
-   ```
-   Add to `src/index.ts` (top of file):
-   ```typescript
-   import * as Sentry from '@sentry/node';
-   Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
-   ```
-4. Install in web:
-   ```bash
-   cd apps/web
-   npx @sentry/wizard@latest -i nextjs
-   ```
-   Follow the wizard.
-5. Add `SENTRY_DSN` (api) and `NEXT_PUBLIC_SENTRY_DSN` (web) to `.env`.
-6. Rebuild + redeploy: `make build && make restart`.
-
----
-
-### Step 8 — Security hardening checklist
-
-Before flipping to production traffic, run through this checklist. Each item is small and high-impact.
-
-| Item | Status | What to add |
+| Item | Status | Notes |
 |---|---|---|
-| Atlas IP allowlist locked to EC2 IP only | — | See Step 5 above |
-| Rate limiting on `/api/auth/*` | — | `npm i express-rate-limit` — 5 req/15min on login, 10 req/hr on signup |
-| Helmet security headers | — | `npm i helmet` then `app.use(helmet())` in `src/index.ts` |
-| Bcrypt rounds | — | Bump from 10 → 12 in `routes/auth.ts` and `routes/employees.ts` |
-| Password min length | — | Bump zod schema from `min(6)` → `min(10)` |
-| Account lockout after N failed logins | — | Add `failedLoginCount` + `lockedUntil` to User model; 5 fails = 15-min lock |
-| JWT tokens in httpOnly cookies (not localStorage) | — | Larger refactor; ~50 lines. Eliminates XSS token theft. |
-| Audit log captures IP + user-agent | — | Add `req.ip` + `req.get('user-agent')` to every `ActivityLog.create` |
-| Mongoose `strict: 'throw'` on all schemas | — | Catches typos at write time |
-| Graceful shutdown on SIGTERM | — | `const server = app.listen(...); process.on('SIGTERM', () => server.close())` |
-| `.env` mirrored to a secret manager | — | 1Password, Bitwarden, or AWS Secrets Manager |
-| `/auth/signup` has reCAPTCHA | — | Cloudflare Turnstile (free) — drop in 10 lines |
-| All admin actions in ActivityLog | ✅ | Already done |
-| HTTPS everywhere | ✅ | Caddy + Cloudflare |
-| Real backups | ✅ | Step 6 + Atlas continuous |
+| HTTPS / real TLS cert | ❌ pending | HTTP-only currently (no domain). Adds 30 min once a domain is bought. |
+| Atlas IP allowlist locked to EC2 EIP | ❌ pending | See [Atlas allowlist](#atlas-allowlist) cutover above. |
+| Rate limiting on `/api/auth/*` | ❌ pending | Add `express-rate-limit` — 5/15min on login, 10/hr on signup. |
+| Helmet security headers | ❌ pending | `npm i helmet` then `app.use(helmet())` in `src/index.ts`. One line. |
+| Bcrypt rounds 10 → 12 | ❌ pending | In `routes/auth.ts` and `routes/employees.ts`. |
+| Password min length 6 → 10 | ❌ pending | Zod schema in `routes/auth.ts`. |
+| Account lockout after N failed logins | ❌ pending | Add `failedLoginCount` + `lockedUntil` to User model. |
+| JWT in httpOnly cookies (not localStorage) | ❌ pending | Eliminates XSS token theft. ~50 lines refactor. |
+| Audit log captures IP + user-agent | ❌ pending | Add `req.ip` + `req.get('user-agent')` to every `ActivityLog.create`. |
+| Mongoose `strict: 'throw'` on all schemas | ❌ pending | Catches typos at write time. |
+| Graceful shutdown on SIGTERM | ❌ pending | `process.on('SIGTERM', () => server.close())`. |
+| `.env` mirrored to a secret manager | ✅ done | SSM Parameter Store on AWS side. |
+| `/auth/signup` has reCAPTCHA | ❌ pending | Cloudflare Turnstile (free) — ~10 lines. |
+| All admin actions in ActivityLog | ✅ done | Already done in all writeable routes. |
+| Defense-in-depth role gates (UI hidden + page guard + server requireAdmin) | ✅ done | Three-layer enforcement everywhere. |
+| Real backups | ❌ pending | See [Backups](#backups). Highest priority gap. |
+| Image scanning | ✅ done | ECR `ScanOnPush: true` on both repos. |
+| OIDC for CI (no AWS keys in GitHub) | ✅ done | `pharmacare-gha-deploy` role, ref-pinned. |
+| Server doesn't need GitHub access | ✅ done | SSM Run Command is the deploy mechanism. |
+| No long-lived AWS access keys in use | ⚠️ partial | OIDC for CI ✓. The `pharmacare-bootstrap` user key still exists — delete after stable for a week (see below). |
+| Single point of failure: one EC2 | ❌ accepted | Acceptable for single pharmacy. Add ALB + autoscaling group at 5+ tenants. |
 
-The first 8 items add up to maybe 4–6 hours. None individually is hard. Together they're the difference between "demo software" and "I'd put a real pharmacy on this."
-
----
-
-### Step 9 — Decommission Render (1 week after cutover)
-
-After at least 1 week of stable production traffic on EC2:
-
-1. Update DNS TTL to 60s (in case you need to revert)
-2. Watch logs/Sentry/UptimeRobot for any regression
-3. Once confident:
-   - Render dashboard → `pharmacare-api` → Settings → **Delete Service**
-   - Same for `pharmacare-web`
-   - Revoke the Render API key (which is currently committed in places I shouldn't mention 😅)
+Top 5 priorities (closing biggest risks first):
+1. **Backups** (data loss is permanent)
+2. **Atlas allowlist** (everyone with the password can read all customer PII)
+3. **Rate limit + helmet** (auth abuse + common attack vectors)
+4. **JWT → httpOnly cookies** (XSS token theft)
+5. **mongoose `strict: 'throw'`** (catch typos)
 
 ---
 
-## Rollback plan
+## Cleanup tasks (one-time)
 
-If something breaks during migration:
+### Delete the bootstrap IAM access key
 
-| Issue | Rollback |
+The `pharmacare-bootstrap` user has an active access key (`AKIAQ3XTZ2C3DX7ZYJXL`) that was used for the initial CFN deploy. Future deploys use OIDC — the key is now only useful for break-glass infrastructure changes.
+
+**Recommendation: delete it.** Recreate when needed for the next infra change.
+
+```bash
+aws iam delete-access-key --user-name pharmacare-bootstrap \
+  --access-key-id AKIAQ3XTZ2C3DX7ZYJXL --profile pharmacare-boot
+```
+
+After deleting, the local `~/.aws/credentials` will stop working for that profile. CI is unaffected (uses OIDC).
+
+### Lock the SSH allowlist down
+
+CFN was deployed with `SshCidr=0.0.0.0/0` (SSH open to the world). The instance only opens 22 — the OS itself is up-to-date, but defense-in-depth says lock the network too.
+
+```bash
+aws cloudformation deploy --stack-name pharmacare-prod \
+  --template-file infra/cloudformation.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides KeyName=pharmacare-keypair SshCidr=$(curl -s ifconfig.me)/32
+```
+
+---
+
+## Cost monitoring
+
+See [COST.md](COST.md). Current spend rate is **~$18/mo** (~₹1,500), all currently covered by the $100 AWS Activate credit.
+
+| Threshold | What it means |
 |---|---|
-| EC2 instance won't start | Atlas + Render are unchanged — just don't cut DNS over |
-| Caddy can't get TLS cert | Check Cloudflare DNS A record; Caddy needs port 80 reachable for HTTP-01 challenge |
-| API can't reach Atlas | Check IP allowlist on Atlas (Step 5); revert to `0.0.0.0/0` temporarily |
-| Browser shows wrong content | DNS still pointing to Render — wait propagation or flip Cloudflare A record back |
-| Data lost / corrupted | Restore from `pre-prod-migration-YYYY-MM-DD.gz` you took in Step 0 |
+| $10 reached | Normal monthly burn at month-end (no concern) |
+| $20-30 reached early in month | Something unusual — investigate |
+| $50+ reached | Either traffic spiked, EIP got detached, or a stuck process. Investigate. |
+| $100 reached | Credit exhausted — billing converts to actual charges |
 
-The migration is fully reversible **at every step** because Atlas (the source of truth) is unchanged until Step 5, and Render keeps running until Step 9.
-
----
-
-## Ongoing operations (post-migration)
-
-| Task | Frequency | Where |
-|---|---|---|
-| Check UptimeRobot alerts | Daily (passive — alerts come to you) | Email/WhatsApp |
-| Check Sentry for new errors | Weekly | sentry.io dashboard |
-| Verify backups succeeded | Weekly | `aws s3 ls s3://pharmacare-backups-{random}/ | tail -7` |
-| Rotate JWT secrets | Yearly | New `openssl rand -base64 64`, update env, restart |
-| Atlas storage check | Monthly | Atlas dashboard → metrics |
-| Apply security patches | Monthly | `sudo apt update && sudo apt upgrade` on EC2 + restart |
-| Re-test backup restore | Quarterly | `mongorestore` a backup into a scratch Atlas project |
-| Rotate AWS IAM access key | Yearly | New key, update cron script, deactivate old |
-
-Set calendar reminders for the quarterly backup restore test. It's the only one that catches the failure mode "backups exist but are unrestorable."
+All thresholds email `healthcare.pharmacy9988@gmail.com`. Whitelist `no-reply@email.amazonbudgets.com` to avoid spam folder.
 
 ---
 
-## What's still missing for "enterprise grade"
+## Troubleshooting (production-specific)
 
-This guide gets you to "production-grade for a single small/mid pharmacy." If you ever scale beyond that, here's what you'd add:
+### Live site returns 502 for everything
 
-- **Multi-region failover** — EC2 in another region, Atlas with geo-distributed replicas
-- **Blue/green or canary deploys** — currently `git push` deploys to production atomically
-- **Centralized log aggregation** — Logtail, Datadog, or self-hosted Loki
-- **APM** — application performance monitoring (request traces, slow query detection)
-- **Pen test + security audit** — by a third party before serving 100+ pharmacies
-- **GDPR/DPDP compliance work** — customer data export, deletion-on-request endpoints
-- **Real WhatsApp Business API** — if pharmacists want fully automated sends
+Check, in order:
+1. EC2 instance running? `aws ec2 describe-instances --instance-ids i-0e4e1b0ced7aeb3cb --query 'Reservations[0].Instances[0].State.Name' --output text`
+2. Docker daemon up? SSM session → `sudo systemctl status docker`
+3. Containers running? `docker compose ps` in `/opt/pharmacare`
+4. Nginx config valid? `docker compose exec nginx nginx -t`
+
+### `mongoConnected:false` after a deploy
+
+Atlas allowlist or `MONGO_URI` issue.
+1. Verify SSM has the right URI: `aws ssm get-parameter --name /pharmacare/env/MONGO_URI --with-decryption --region ap-south-1`
+2. Verify EC2's egress IP matches what Atlas expects.
+3. Quick fix: re-add `0.0.0.0/0` in Atlas Network Access (api reconnects in ~30s).
+
+### Lost SSH access (forgot key)
+
+Use SSM Session Manager instead — no SSH needed:
+```bash
+aws ssm start-session --target i-0e4e1b0ced7aeb3cb --region ap-south-1
+```
+
+If even SSM is down (rare), the EC2 console serial port via AWS console works as last resort.
+
+### Out of EBS disk space
+
+```bash
+docker system prune -af --filter "until=168h"   # clears images >7 days old
+docker image prune -af                           # clears unused images
+journalctl --vacuum-time=14d                     # rotates old systemd logs
+```
+
+t4g.small + 20 GiB gp3 has plenty of headroom for years at single-pharmacy scale. Watch via CloudWatch metrics → `EBSReadOps` / disk-used (need CloudWatch agent for the latter).
+
+### "Stack pharmacare-prod is in ROLLBACK_COMPLETE state"
+
+CFN refuses to update a stack in this state. Delete + recreate:
+```bash
+aws cloudformation delete-stack --stack-name pharmacare-prod
+aws cloudformation wait stack-delete-complete --stack-name pharmacare-prod
+# Then re-deploy normally
+```
+
+Resources to know about: EIP, ECR repos, OIDC provider all get destroyed too. Customer data in Atlas is safe (separate account).
+
+---
+
+## What's still missing for "enterprise-grade"
+
+This setup is appropriate for **one small/mid pharmacy**. To scale beyond that:
+
+- **Multi-AZ HA** — second EC2 in a different AZ, behind an ALB
+- **Blue/green / canary deploys** — currently `up -d` is a brief downtime
+- **Centralized logs** — Logtail, Datadog, or self-hosted Loki
+- **APM** — request tracing, slow query detection
+- **Pen test + security audit** — by a third party before 100+ pharmacies
+- **GDPR/DPDP compliance** — customer data export + deletion-on-request endpoints
+- **Real WhatsApp Business API** — if pharmacists ever want fully automated sends
 - **Per-pharmacy data isolation** — currently single-tenant; multi-tenant needs auth + DB scoping refactor
 
-None of those are needed for the first 1–10 pharmacies. They're flagged here so you know they exist when you grow into them.
+None of those are needed for the first 1–10 pharmacies. They're flagged here so future engineers know they exist when you grow into them.
