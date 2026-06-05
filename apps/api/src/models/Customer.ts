@@ -1,4 +1,4 @@
-import { Schema, model, Document, Types } from 'mongoose';
+import { Schema, Document, Types } from 'mongoose';
 
 export interface IMedicineItem {
   medicineName: string;
@@ -31,7 +31,7 @@ const MedicineItemSchema = new Schema<IMedicineItem>(
   { _id: false }
 );
 
-const CustomerSchema = new Schema<ICustomer>(
+export const CustomerSchema = new Schema<ICustomer>(
   {
     name: { type: String, required: true, trim: true },
     phone: { type: String, required: true, trim: true, index: true },
@@ -56,5 +56,3 @@ CustomerSchema.index({
   nextDueDate: 1,
 });
 CustomerSchema.index({ name: 'text', phone: 'text' });
-
-export const Customer = model<ICustomer>('Customer', CustomerSchema);

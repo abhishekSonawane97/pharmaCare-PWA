@@ -1,19 +1,19 @@
-import { Customer, ICustomer } from '../models/Customer';
-import { ActivityLog } from '../models/ActivityLog';
+import { ICustomer } from '../models/Customer';
 import { ensureSettings } from '../models/Settings';
 import { reminderWindow } from '../utils/dateWindow';
 import { buildReminderLinks, buildThankYouLinks, ReminderLinks } from './messageLinks';
+import type { TenantModels } from '../db/models';
 
 export interface ReminderRow {
   customer: ICustomer;
   links: ReminderLinks;
 }
 
-export async function listReminderQueue(): Promise<ReminderRow[]> {
+export async function listReminderQueue(models: TenantModels): Promise<ReminderRow[]> {
   const { from, to } = reminderWindow();
-  const settings = await ensureSettings();
+  const settings = await ensureSettings(models.Settings);
 
-  const customers = await Customer.find({
+  const customers = await models.Customer.find({
     isActive: true,
     reminderIgnored: false,
     nextDueDate: { $gte: from, $lte: to },
@@ -25,6 +25,7 @@ export async function listReminderQueue(): Promise<ReminderRow[]> {
 export type SendChannel = 'whatsapp' | 'sms';
 
 export async function markReminderSent(
+  models: TenantModels,
   customer: ICustomer,
   channel: SendChannel,
   actorId: string | null,
@@ -35,7 +36,7 @@ export async function markReminderSent(
   customer.autoReminderSentAt = stamp;
   await customer.save();
 
-  await ActivityLog.create({
+  await models.ActivityLog.create({
     actorId,
     actorName,
     action: 'reminder.manual_sent',
@@ -49,9 +50,10 @@ export async function markReminderSent(
 }
 
 export async function buildThankYouForCustomer(
+  models: TenantModels,
   customer: ICustomer,
   nextDueDate: Date
 ): Promise<ReminderLinks> {
-  const settings = await ensureSettings();
+  const settings = await ensureSettings(models.Settings);
   return buildThankYouLinks(customer, settings, nextDueDate);
 }

@@ -1,4 +1,4 @@
-import { Schema, model, Document, Types } from 'mongoose';
+import { Schema, Document, Types } from 'mongoose';
 
 export interface IPayment extends Document {
   _id: Types.ObjectId;
@@ -15,7 +15,7 @@ export interface IPayment extends Document {
   createdAt: Date;
 }
 
-const PaymentSchema = new Schema<IPayment>(
+export const PaymentSchema = new Schema<IPayment>(
   {
     customerId: { type: Schema.Types.ObjectId, ref: 'Customer', default: null, index: true },
     type: { type: String, enum: ['received', 'given'], required: true, index: true },
@@ -32,5 +32,3 @@ const PaymentSchema = new Schema<IPayment>(
 );
 
 PaymentSchema.index({ date: -1 });
-
-export const Payment = model<IPayment>('Payment', PaymentSchema);

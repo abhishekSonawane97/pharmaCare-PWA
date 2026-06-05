@@ -9,11 +9,13 @@ export interface AccessPayload {
   sub: string;
   role: 'admin' | 'employee';
   status: 'pending' | 'active' | 'rejected';
+  tenant: string;
 }
 
 export interface RefreshPayload {
   sub: string;
   ver: number;
+  tenant: string;
 }
 
 export const signAccessToken = (payload: AccessPayload) =>

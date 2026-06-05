@@ -1,17 +1,26 @@
+/**
+ * Tenant-aware seed script.
+ *
+ * Usage:
+ *   tsx src/scripts/seed.ts --tenant=pharmacare
+ *   tsx src/scripts/seed.ts --tenant=adilpharmacy
+ *
+ * Required guards:
+ *   - SEED_CONFIRM=<tenant>  (must match the --tenant argument)
+ *     OR
+ *   - SEED_FORCE=true
+ *
+ * This is destructive: it wipes every collection in the target tenant's DB
+ * before reinserting the sample dataset.
+ */
+
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-import { User } from '../models/User';
-import { Customer } from '../models/Customer';
-import { Payment } from '../models/Payment';
-import { Medicine } from '../models/Medicine';
-import { ActivityLog } from '../models/ActivityLog';
-import { ensureSettings, Settings } from '../models/Settings';
+import { getTenantConfig, isTenantId, TENANT_IDS } from '../config/tenants';
+import { ensureSettings } from '../models/Settings';
+import { getModels } from '../db/models';
 import { normalizePhone } from '../utils/phone';
-
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/pharmacare';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@pharmacare.local';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme123';
 
 const day = (offset: number) => {
   const d = new Date();
@@ -50,7 +59,7 @@ const CUSTOMERS = [
   { name: 'Anjali Deshpande', phone: '9890123456', medicines: ['Levothyroxine 50mcg'], offset: 2 },
   { name: 'Mohammed Iqbal', phone: '9764321890', notes: 'Calls before coming', medicines: ['Telmisartan 40mg', 'Atorvastatin 20mg'], offset: 0 },
   { name: 'Sunita Joshi', phone: '9011223344', altPhone: '9011223345', address: 'Kothrud, Pune', medicines: ['Amlodipine 5mg'], offset: 2 },
-  { name: 'Vikram Singh', phone: '9700556677', address: 'Hadapsar, Pune', notes: 'Diabetic — insulin user', medicines: ['Insulin Glargine', 'Metformin 500mg'], offset: 1 },
+  { name: 'Vikram Singh', phone: '9700556677', address: 'Hadapsar, Pune', notes: 'Diabetic - insulin user', medicines: ['Insulin Glargine', 'Metformin 500mg'], offset: 1 },
   { name: 'Priya Nair', phone: '9845112233', address: 'Baner, Pune', medicines: ['Cetirizine 10mg', 'Montelukast 10mg'], offset: 7 },
   { name: 'Arjun Pawar', phone: '9923456712', address: 'Shivajinagar, Pune', medicines: ['Pantoprazole 40mg'], offset: 14 },
   { name: 'Rekha Sawant', phone: '9876123450', address: 'Wakad, Pune', notes: 'Senior citizen', medicines: ['Atorvastatin 20mg', 'Clopidogrel 75mg', 'Telmisartan 40mg'], offset: 2 },
@@ -68,14 +77,55 @@ const CUSTOMERS = [
   { name: 'Anand Bhide', phone: '9555678901', address: 'Erandwane, Pune', medicines: ['Telmisartan 40mg'], offset: 2 },
 ];
 
+function parseTenantArg(): string {
+  const arg = process.argv.find(a => a.startsWith('--tenant='));
+  if (!arg) {
+    console.error(`Missing --tenant=<id> argument. Known tenants: ${TENANT_IDS.join(', ')}`);
+    process.exit(1);
+  }
+  return arg.slice('--tenant='.length).trim();
+}
+
 async function main() {
-  if (process.env.NODE_ENV === 'production' && process.env.SEED_FORCE !== 'true') {
-    console.warn('Refusing to seed in production. Set SEED_FORCE=true to override.');
+  const tenant = parseTenantArg();
+  if (!isTenantId(tenant)) {
+    console.error(`Unknown tenant "${tenant}". Known tenants: ${TENANT_IDS.join(', ')}`);
     process.exit(1);
   }
 
-  await mongoose.connect(MONGO_URI);
-  console.log('[seed] connected to', MONGO_URI);
+  const cfg = getTenantConfig(tenant);
+  const masked = cfg.mongoUri.replace(/(mongodb\+srv:\/\/)[^:]+:[^@]+@/, '$1***:***@');
+
+  console.log(`[seed] Tenant: ${tenant} (${cfg.displayName})`);
+  console.log(`[seed] Target: ${masked}`);
+
+  // Guard against accidental wipe
+  const confirmOk = process.env.SEED_CONFIRM === tenant;
+  const forceOk = process.env.SEED_FORCE === 'true';
+  if (!confirmOk && !forceOk) {
+    console.error(`[seed] Refusing to wipe data without confirmation.`);
+    console.error(`[seed] Set SEED_CONFIRM=${tenant} (or SEED_FORCE=true) to proceed.`);
+    process.exit(1);
+  }
+
+  // Tenant-scoped admin creds — pulled from per-tenant env vars first, then a generic fallback.
+  const tenantUpper = tenant.toUpperCase();
+  const ADMIN_EMAIL = process.env[`ADMIN_EMAIL_${tenantUpper}`]
+    || process.env.ADMIN_EMAIL
+    || `admin@${tenant}.local`;
+  const ADMIN_PASSWORD = process.env[`ADMIN_PASSWORD_${tenantUpper}`]
+    || process.env.ADMIN_PASSWORD
+    || 'changeme123';
+
+  // Create a fresh connection just for this tenant — do NOT use the default connection.
+  const conn = mongoose.createConnection(cfg.mongoUri, {
+    maxPoolSize: 5,
+    serverSelectionTimeoutMS: 15_000,
+  });
+  await conn.asPromise();
+  console.log(`[seed] connected`);
+
+  const { User, Customer, Payment, Medicine, ActivityLog, Settings } = getModels(conn);
 
   await Promise.all([
     User.deleteMany({}),
@@ -87,7 +137,7 @@ async function main() {
   ]);
   console.log('[seed] cleared collections');
 
-  await ensureSettings();
+  await ensureSettings(Settings);
 
   const adminHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
   const admin = await User.create({
@@ -102,12 +152,12 @@ async function main() {
 
   const employeeHash = await bcrypt.hash('changeme123', 10);
   const employees = await User.insertMany([
-    { name: 'Rohan Mehta', email: 'rohan@pharmacare.local', phone: normalizePhone('9823100002'), passwordHash: employeeHash, role: 'employee', status: 'active' },
-    { name: 'Sneha Pillai', email: 'sneha@pharmacare.local', phone: normalizePhone('9823100003'), passwordHash: employeeHash, role: 'employee', status: 'active' },
-    { name: 'Karthik Nayak', email: 'karthik@pharmacare.local', phone: normalizePhone('9823100004'), passwordHash: employeeHash, role: 'employee', status: 'active' },
-    { name: 'Pranav Joshi', email: 'pranav@pharmacare.local', phone: normalizePhone('9823100005'), passwordHash: employeeHash, role: 'employee', status: 'pending' },
-    { name: 'Neha Kulkarni', email: 'neha.k@pharmacare.local', phone: normalizePhone('9823100006'), passwordHash: employeeHash, role: 'employee', status: 'pending' },
-    { name: 'Ishita Bose', email: 'ishita@pharmacare.local', phone: normalizePhone('9823100007'), passwordHash: employeeHash, role: 'employee', status: 'pending' },
+    { name: 'Rohan Mehta', email: `rohan@${tenant}.local`, phone: normalizePhone('9823100002'), passwordHash: employeeHash, role: 'employee', status: 'active' },
+    { name: 'Sneha Pillai', email: `sneha@${tenant}.local`, phone: normalizePhone('9823100003'), passwordHash: employeeHash, role: 'employee', status: 'active' },
+    { name: 'Karthik Nayak', email: `karthik@${tenant}.local`, phone: normalizePhone('9823100004'), passwordHash: employeeHash, role: 'employee', status: 'active' },
+    { name: 'Pranav Joshi', email: `pranav@${tenant}.local`, phone: normalizePhone('9823100005'), passwordHash: employeeHash, role: 'employee', status: 'pending' },
+    { name: 'Neha Kulkarni', email: `neha.k@${tenant}.local`, phone: normalizePhone('9823100006'), passwordHash: employeeHash, role: 'employee', status: 'pending' },
+    { name: 'Ishita Bose', email: `ishita@${tenant}.local`, phone: normalizePhone('9823100007'), passwordHash: employeeHash, role: 'employee', status: 'pending' },
   ]);
 
   await Medicine.insertMany(SEED_MEDICINES);
@@ -132,8 +182,8 @@ async function main() {
     { customerName: 'Ramesh Kulkarni', amount: 480, type: 'received' as const, offset: -32 },
     { customerName: 'Ramesh Kulkarni', amount: 200, type: 'given' as const, notes: 'Refund for damaged strip', offset: -45 },
     { customerName: 'Mohammed Iqbal', amount: 2150, type: 'received' as const, notes: 'Monthly settlement', offset: -7 },
-    { customerName: 'Vikram Singh', amount: 4800, type: 'received' as const, notes: 'Insulin + tablets — March', offset: -2 },
-    { customerName: 'Vikram Singh', amount: 4650, type: 'received' as const, notes: 'Insulin + tablets — Feb', offset: -31 },
+    { customerName: 'Vikram Singh', amount: 4800, type: 'received' as const, notes: 'Insulin + tablets - March', offset: -2 },
+    { customerName: 'Vikram Singh', amount: 4650, type: 'received' as const, notes: 'Insulin + tablets - Feb', offset: -31 },
     { customerName: 'Rekha Sawant', amount: 1820, type: 'received' as const, offset: -5 },
     { customerName: 'Rekha Sawant', amount: 500, type: 'given' as const, notes: 'Advance returned', offset: -12 },
     { customerName: 'Sandeep Khanna', amount: 960, type: 'received' as const, notes: 'Cash', offset: -1 },
@@ -157,10 +207,11 @@ async function main() {
   );
 
   console.log(`[seed] Done.`);
+  console.log(`[seed] Tenant: ${tenant}`);
   console.log(`[seed] Admin login: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);
   console.log(`[seed] ${employees.length} employees, ${customerDocs.length} customers, ${SEED_MEDICINES.length} medicines, ${payments.length} payments`);
 
-  await mongoose.disconnect();
+  await conn.close();
   process.exit(0);
 }
 

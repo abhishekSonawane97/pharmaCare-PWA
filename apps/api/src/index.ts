@@ -2,7 +2,6 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
-import mongoose from 'mongoose';
 
 import authRouter from './routes/auth';
 import customersRouter from './routes/customers';
@@ -15,9 +14,15 @@ import settingsRouter from './routes/settings';
 import dashboardRouter from './routes/dashboard';
 import { errorHandler } from './middleware/error';
 import { ensureSettings } from './models/Settings';
+import {
+  connectAllTenants,
+  getTenantConnection,
+  tenantConnectionStatus,
+} from './db/connections';
+import { getModels } from './db/models';
+import { TENANT_IDS } from './config/tenants';
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/pharmacare';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:3000';
 
 async function main() {
@@ -27,10 +32,12 @@ async function main() {
   app.use(morgan('tiny'));
 
   app.get('/api/health', (_req, res) => {
+    const tenants = tenantConnectionStatus();
+    const allConnected = Object.values(tenants).every(Boolean);
     res.json({
-      status: 'ok',
+      status: allConnected ? 'ok' : 'degraded',
       uptime: process.uptime(),
-      mongoConnected: mongoose.connection.readyState === 1,
+      tenants,
     });
   });
 
@@ -50,9 +57,14 @@ async function main() {
 
   app.use(errorHandler);
 
-  await mongoose.connect(MONGO_URI);
-  console.log('[mongo] connected');
-  await ensureSettings();
+  await connectAllTenants();
+
+  // Ensure each tenant has its Settings singleton.
+  for (const t of TENANT_IDS) {
+    const conn = getTenantConnection(t);
+    const { Settings } = getModels(conn);
+    await ensureSettings(Settings);
+  }
 
   app.listen(PORT, () => {
     console.log(`[api] listening on :${PORT}`);

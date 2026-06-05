@@ -1,4 +1,4 @@
-import { Schema, model, Document } from 'mongoose';
+import { Schema, Document, Model } from 'mongoose';
 
 export interface ISettings extends Omit<Document, '_id'> {
   _id: string;
@@ -11,7 +11,7 @@ export interface ISettings extends Omit<Document, '_id'> {
   updatedAt: Date;
 }
 
-const SettingsSchema = new Schema<ISettings>(
+export const SettingsSchema = new Schema<ISettings>(
   {
     _id: { type: String, default: 'settings' },
     pharmacyName: { type: String, required: true, default: 'PharmaCare Pharmacy' },
@@ -32,10 +32,12 @@ const SettingsSchema = new Schema<ISettings>(
   { timestamps: { updatedAt: true, createdAt: false } }
 );
 
-export const Settings = model<ISettings>('Settings', SettingsSchema);
-
-export async function ensureSettings(): Promise<ISettings> {
-  const existing = await Settings.findById('settings');
+/**
+ * Ensure the singleton Settings doc exists for the given tenant's Settings model.
+ * Pass the per-tenant model from getModels(conn).
+ */
+export async function ensureSettings(SettingsModel: Model<ISettings>): Promise<ISettings> {
+  const existing = await SettingsModel.findById('settings');
   if (existing) return existing;
-  return Settings.create({ _id: 'settings' });
+  return SettingsModel.create({ _id: 'settings' });
 }

@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { Logomark, Wordmark } from '@/components/Logomark';
 import { Button } from '@/components/Button';
 import { Input, Field } from '@/components/Input';
 import { useAuth } from '@/lib/auth-context';
 import { ApiError } from '@/lib/api';
+import { TENANTS, TenantId, getLastTenant } from '@/lib/tenants';
 
 export default function LoginPage() {
   const { login, signup } = useAuth();
@@ -15,6 +16,10 @@ export default function LoginPage() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingNotice, setPendingNotice] = useState<string | null>(null);
+
+  // Tenant selection — restored from localStorage on mount (avoids SSR hydration mismatch via lazy init)
+  const [tenant, setTenant] = useState<TenantId>(TENANTS[0].id);
+  useEffect(() => { setTenant(getLastTenant()); }, []);
 
   // sign-in fields
   const [email, setEmail] = useState('');
@@ -31,7 +36,7 @@ export default function LoginPage() {
     setError(null);
     setPending(true);
     try {
-      await login(email, password);
+      await login(email, password, tenant);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Sign-in failed';
       setError(msg);
@@ -45,7 +50,7 @@ export default function LoginPage() {
     setError(null);
     setPending(true);
     try {
-      const result = await signup({ name: suName, email: suEmail, phone: suPhone, password: suPassword });
+      const result = await signup({ name: suName, email: suEmail, phone: suPhone, password: suPassword, tenant });
       if (result.pending) {
         setPendingNotice(`Account created — your access is awaiting admin approval.`);
         setSuName(''); setSuEmail(''); setSuPhone(''); setSuPassword('');
@@ -57,6 +62,20 @@ export default function LoginPage() {
       setPending(false);
     }
   }
+
+  const tenantField = (
+    <Field label="Pharmacy" required>
+      <select
+        value={tenant}
+        onChange={e => setTenant(e.target.value as TenantId)}
+        className="appearance-none w-full h-9 px-3 rounded-md border border-[var(--border)] bg-white text-[13px] text-[var(--ink)] outline-none focus:border-[var(--brand-500)] focus:ring-2 focus:ring-[color-mix(in_oklab,var(--brand-500)_22%,transparent)]"
+      >
+        {TENANTS.map(t => (
+          <option key={t.id} value={t.id}>{t.label}</option>
+        ))}
+      </select>
+    </Field>
+  );
 
   return (
     <div className="min-h-screen flex" style={{ background: 'var(--bg)' }}>
@@ -79,7 +98,7 @@ export default function LoginPage() {
               Run your counter, ledger, and refill reminders from one calm dashboard.
             </h1>
             <p className="text-[14px] opacity-80 mt-4 leading-relaxed">
-              Track medicines, customers, payments and automated WhatsApp refills — built for independent pharmacies.
+              Track medicines, customers, payments and one-tap WhatsApp/SMS refills — built for independent pharmacies.
             </p>
           </div>
           <div className="text-[12px] opacity-60">v1.0 · Internal tool</div>
@@ -111,8 +130,9 @@ export default function LoginPage() {
             <>
               <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)] mb-2">Sign in</div>
               <h2 className="text-[24px] font-semibold tracking-tight text-[var(--ink)]">Welcome back</h2>
-              <p className="text-[13px] text-[var(--muted)] mt-1.5 mb-7">Use your registered email and password.</p>
+              <p className="text-[13px] text-[var(--muted)] mt-1.5 mb-7">Choose your pharmacy, then enter your credentials.</p>
               <form onSubmit={onSignIn} className="flex flex-col gap-4">
+                {tenantField}
                 <Field label="Email" required>
                   <Input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@pharmacare.local" />
                 </Field>
@@ -142,6 +162,7 @@ export default function LoginPage() {
               <h2 className="text-[24px] font-semibold tracking-tight text-[var(--ink)]">Request access</h2>
               <p className="text-[13px] text-[var(--muted)] mt-1.5 mb-7">First user becomes admin. Subsequent signups need admin approval.</p>
               <form onSubmit={onSignUp} className="flex flex-col gap-4">
+                {tenantField}
                 <Field label="Full name" required>
                   <Input value={suName} onChange={e => setSuName(e.target.value)} placeholder="Aditi Sharma" />
                 </Field>

@@ -1,8 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Customer } from '../models/Customer';
-import { Payment } from '../models/Payment';
-import { ActivityLog } from '../models/ActivityLog';
+import { modelsFor } from '../db/models';
 import { ah } from '../utils/asyncHandler';
 import { notFound, validationError } from '../utils/errors';
 import { requireAuth, requireAdmin } from '../middleware/auth';
@@ -31,6 +29,7 @@ const dueDateSchema = z.object({ nextDueDate: z.string().min(1) });
 router.get(
   '/',
   ah(async (req, res) => {
+    const { Customer } = modelsFor(req);
     const q = (req.query.q as string | undefined)?.trim() || '';
     const filter = (req.query.filter as string | undefined) || 'all';
     const sort = (req.query.sort as string | undefined) || 'due_date';
@@ -67,6 +66,7 @@ router.get(
 router.get(
   '/:id',
   ah(async (req, res) => {
+    const { Customer, Payment } = modelsFor(req);
     const customer = await Customer.findById(req.params.id);
     if (!customer || !customer.isActive) throw notFound('Customer not found');
     const recentPayments = await Payment.find({ customerId: customer._id })
@@ -80,6 +80,7 @@ router.get(
 router.post(
   '/',
   ah(async (req, res) => {
+    const { Customer, ActivityLog } = modelsFor(req);
     const body = customerCreateSchema.parse(req.body);
     const due = new Date(body.nextDueDate);
     if (Number.isNaN(due.getTime())) throw validationError('Invalid nextDueDate');
@@ -112,6 +113,7 @@ router.put(
   '/:id',
   requireAdmin,
   ah(async (req, res) => {
+    const { Customer, ActivityLog } = modelsFor(req);
     const body = customerCreateSchema.parse(req.body);
     const customer = await Customer.findById(req.params.id);
     if (!customer || !customer.isActive) throw notFound('Customer not found');
@@ -163,6 +165,7 @@ router.patch(
   '/:id/due-date',
   requireAdmin,
   ah(async (req, res) => {
+    const { Customer, ActivityLog } = modelsFor(req);
     const { nextDueDate } = dueDateSchema.parse(req.body);
     const customer = await Customer.findById(req.params.id);
     if (!customer || !customer.isActive) throw notFound('Customer not found');
@@ -190,6 +193,7 @@ router.delete(
   '/:id',
   requireAdmin,
   ah(async (req, res) => {
+    const { Customer, ActivityLog } = modelsFor(req);
     const customer = await Customer.findById(req.params.id);
     if (!customer) throw notFound('Customer not found');
     customer.isActive = false;
@@ -210,6 +214,7 @@ router.post(
   '/:id/ignore',
   requireAdmin,
   ah(async (req, res) => {
+    const { Customer, ActivityLog } = modelsFor(req);
     const customer = await Customer.findById(req.params.id);
     if (!customer || !customer.isActive) throw notFound('Customer not found');
     customer.reminderIgnored = true;
@@ -230,6 +235,7 @@ router.post(
   '/:id/unignore',
   requireAdmin,
   ah(async (req, res) => {
+    const { Customer, ActivityLog } = modelsFor(req);
     const customer = await Customer.findById(req.params.id);
     if (!customer || !customer.isActive) throw notFound('Customer not found');
     customer.reminderIgnored = false;

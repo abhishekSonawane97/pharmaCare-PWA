@@ -1,8 +1,5 @@
 import { Router } from 'express';
-import { Customer } from '../models/Customer';
-import { Payment } from '../models/Payment';
-import { User } from '../models/User';
-import { Medicine } from '../models/Medicine';
+import { modelsFor } from '../db/models';
 import { ah } from '../utils/asyncHandler';
 import { requireAuth } from '../middleware/auth';
 import { reminderWindow, startOfMonth } from '../utils/dateWindow';
@@ -13,6 +10,7 @@ router.use(requireAuth);
 router.get(
   '/summary',
   ah(async (req, res) => {
+    const { Customer, Payment, User, Medicine } = modelsFor(req);
     const now = new Date();
     const { from, to } = reminderWindow(now);
     const monthStart = startOfMonth(now);

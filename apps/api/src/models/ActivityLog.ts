@@ -1,4 +1,4 @@
-import { Schema, model, Document, Types } from 'mongoose';
+import { Schema, Document, Types } from 'mongoose';
 
 export interface IActivityLog extends Document {
   _id: Types.ObjectId;
@@ -12,7 +12,7 @@ export interface IActivityLog extends Document {
   createdAt: Date;
 }
 
-const ActivityLogSchema = new Schema<IActivityLog>(
+export const ActivityLogSchema = new Schema<IActivityLog>(
   {
     actorId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     actorName: { type: String, required: true },
@@ -27,5 +27,3 @@ const ActivityLogSchema = new Schema<IActivityLog>(
 
 ActivityLogSchema.index({ createdAt: -1 });
 ActivityLogSchema.index({ actorId: 1, createdAt: -1 });
-
-export const ActivityLog = model<IActivityLog>('ActivityLog', ActivityLogSchema);

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { ensureSettings } from '../models/Settings';
-import { ActivityLog } from '../models/ActivityLog';
+import { modelsFor } from '../db/models';
 import { ah } from '../utils/asyncHandler';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 
@@ -19,8 +19,9 @@ const settingsSchema = z.object({
 
 router.get(
   '/',
-  ah(async (_req, res) => {
-    const settings = await ensureSettings();
+  ah(async (req, res) => {
+    const { Settings } = modelsFor(req);
+    const settings = await ensureSettings(Settings);
     res.json({ data: { settings } });
   })
 );
@@ -28,8 +29,9 @@ router.get(
 router.put(
   '/',
   ah(async (req, res) => {
+    const { Settings, ActivityLog } = modelsFor(req);
     const body = settingsSchema.parse(req.body);
-    const settings = await ensureSettings();
+    const settings = await ensureSettings(Settings);
 
     if (body.pharmacyName !== undefined) settings.pharmacyName = body.pharmacyName;
     if (body.pharmacyAddress !== undefined) settings.pharmacyAddress = body.pharmacyAddress;

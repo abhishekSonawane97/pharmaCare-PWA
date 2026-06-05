@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ActivityLog } from '../models/ActivityLog';
+import { modelsFor } from '../db/models';
 import { ah } from '../utils/asyncHandler';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 
@@ -9,6 +9,7 @@ router.use(requireAuth, requireAdmin);
 router.get(
   '/',
   ah(async (req, res) => {
+    const { ActivityLog } = modelsFor(req);
     const actorId = (req.query.actorId as string | undefined) || '';
     const action = (req.query.action as string | undefined) || '';
     const from = (req.query.from as string | undefined) || '';

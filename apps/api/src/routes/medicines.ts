@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Medicine } from '../models/Medicine';
-import { ActivityLog } from '../models/ActivityLog';
+import { modelsFor } from '../db/models';
 import { ah } from '../utils/asyncHandler';
 import { conflict, notFound } from '../utils/errors';
 import { requireAuth, requireAdmin } from '../middleware/auth';
@@ -25,6 +24,7 @@ const medicineSchema = z.object({
 router.get(
   '/',
   ah(async (req, res) => {
+    const { Medicine } = modelsFor(req);
     const q = (req.query.q as string | undefined)?.trim();
     const inStock = req.query.inStock as string | undefined;
     const conditions: any = {};
@@ -43,6 +43,7 @@ router.post(
   '/',
   requireAdmin,
   ah(async (req, res) => {
+    const { Medicine, ActivityLog } = modelsFor(req);
     const body = medicineSchema.parse(req.body);
     const dupe = await Medicine.findOne({ name: new RegExp(`^${body.name.trim()}$`, 'i') });
     if (dupe) throw conflict('A medicine with that name already exists');
@@ -69,6 +70,7 @@ router.put(
   '/:id',
   requireAdmin,
   ah(async (req, res) => {
+    const { Medicine, ActivityLog } = modelsFor(req);
     const body = medicineSchema.partial().parse(req.body);
     const medicine = await Medicine.findById(req.params.id);
     if (!medicine) throw notFound('Medicine not found');
@@ -91,6 +93,7 @@ router.delete(
   '/:id',
   requireAdmin,
   ah(async (req, res) => {
+    const { Medicine, ActivityLog } = modelsFor(req);
     const medicine = await Medicine.findById(req.params.id);
     if (!medicine) throw notFound('Medicine not found');
     await medicine.deleteOne();

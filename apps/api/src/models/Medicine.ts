@@ -1,4 +1,4 @@
-import { Schema, model, Document, Types } from 'mongoose';
+import { Schema, Document, Types } from 'mongoose';
 
 export interface IMedicine extends Document {
   _id: Types.ObjectId;
@@ -16,7 +16,7 @@ export interface IMedicine extends Document {
   updatedAt: Date;
 }
 
-const MedicineSchema = new Schema<IMedicine>(
+export const MedicineSchema = new Schema<IMedicine>(
   {
     name: { type: String, required: true, unique: true, trim: true },
     content: { type: String, trim: true },
@@ -33,5 +33,3 @@ const MedicineSchema = new Schema<IMedicine>(
 );
 
 MedicineSchema.index({ name: 'text', content: 'text' });
-
-export const Medicine = model<IMedicine>('Medicine', MedicineSchema);

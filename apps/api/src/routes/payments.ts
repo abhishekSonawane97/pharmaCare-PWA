@@ -1,8 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Payment } from '../models/Payment';
-import { Customer } from '../models/Customer';
-import { ActivityLog } from '../models/ActivityLog';
+import { modelsFor } from '../db/models';
 import { ah } from '../utils/asyncHandler';
 import { notFound, validationError } from '../utils/errors';
 import { requireAuth, requireAdmin } from '../middleware/auth';
@@ -26,6 +24,7 @@ const paymentCreateSchema = z.object({
 router.get(
   '/',
   ah(async (req, res) => {
+    const { Payment } = modelsFor(req);
     const q = (req.query.q as string | undefined)?.trim() || '';
     const type = (req.query.type as string | undefined) || 'all';
     const customerId = (req.query.customerId as string | undefined) || '';
@@ -74,6 +73,7 @@ router.post(
   '/',
   requireAdmin,
   ah(async (req, res) => {
+    const { Payment, Customer, ActivityLog } = modelsFor(req);
     const body = paymentCreateSchema.parse(req.body);
     const date = new Date(body.date);
     if (Number.isNaN(date.getTime())) throw validationError('Invalid date');
@@ -116,6 +116,7 @@ router.patch(
   '/:id',
   requireAdmin,
   ah(async (req, res) => {
+    const { Payment } = modelsFor(req);
     const payment = await Payment.findById(req.params.id);
     if (!payment) throw notFound('Payment not found');
     if (typeof req.body.due === 'boolean') payment.due = req.body.due;
@@ -128,6 +129,7 @@ router.delete(
   '/:id',
   requireAdmin,
   ah(async (req, res) => {
+    const { Payment, ActivityLog } = modelsFor(req);
     const payment = await Payment.findById(req.params.id);
     if (!payment) throw notFound('Payment not found');
     await payment.deleteOne();

@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { User } from '../models/User';
-import { ActivityLog } from '../models/ActivityLog';
+import { modelsFor } from '../db/models';
 import { ah } from '../utils/asyncHandler';
 import { conflict, notFound } from '../utils/errors';
 import { requireAuth, requireAdmin } from '../middleware/auth';
@@ -21,7 +20,8 @@ const employeeCreateSchema = z.object({
 
 router.get(
   '/',
-  ah(async (_req, res) => {
+  ah(async (req, res) => {
+    const { User } = modelsFor(req);
     const all = await User.find({ status: { $ne: 'rejected' } }).sort({ createdAt: -1 }).lean();
     const active = all.filter(u => u.status === 'active');
     const pending = all.filter(u => u.status === 'pending');
@@ -32,6 +32,7 @@ router.get(
 router.post(
   '/',
   ah(async (req, res) => {
+    const { User, ActivityLog } = modelsFor(req);
     const body = employeeCreateSchema.parse(req.body);
     const email = body.email.toLowerCase().trim();
     const dupe = await User.findOne({ email });
@@ -61,6 +62,7 @@ router.post(
 router.post(
   '/:id/approve',
   ah(async (req, res) => {
+    const { User, ActivityLog } = modelsFor(req);
     const user = await User.findById(req.params.id);
     if (!user) throw notFound('User not found');
     user.status = 'active';
@@ -80,6 +82,7 @@ router.post(
 router.post(
   '/:id/reject',
   ah(async (req, res) => {
+    const { User, ActivityLog } = modelsFor(req);
     const user = await User.findById(req.params.id);
     if (!user) throw notFound('User not found');
     user.status = 'rejected';
@@ -100,6 +103,7 @@ router.post(
 router.delete(
   '/:id',
   ah(async (req, res) => {
+    const { User, ActivityLog } = modelsFor(req);
     const user = await User.findById(req.params.id);
     if (!user) throw notFound('User not found');
     user.status = 'rejected';

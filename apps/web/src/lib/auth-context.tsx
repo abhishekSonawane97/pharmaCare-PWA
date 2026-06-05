@@ -4,12 +4,13 @@ import { createContext, useCallback, useContext, useEffect, useState, ReactNode 
 import { useRouter, usePathname } from 'next/navigation';
 import { api, tokenStore, ApiError } from './api';
 import type { User } from './types';
+import { TenantId, rememberTenant } from './tenants';
 
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (data: { name: string; email: string; phone: string; password: string }) => Promise<{ pending: boolean; user: User }>;
+  login: (email: string, password: string, tenant: TenantId) => Promise<void>;
+  signup: (data: { name: string; email: string; phone: string; password: string; tenant: TenantId }) => Promise<{ pending: boolean; user: User }>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -54,17 +55,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user, loading, pathname, router]);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, tenant: TenantId) => {
     const data = await api<{ user: User; accessToken: string; refreshToken: string }>('/auth/login', {
       method: 'POST',
-      body: { email, password },
+      body: { email, password, tenant },
       skipAuth: true,
     });
     tokenStore.set(data.accessToken, data.refreshToken);
+    rememberTenant(tenant);
     setUser(data.user);
   }, []);
 
-  const signup = useCallback(async (payload: { name: string; email: string; phone: string; password: string }) => {
+  const signup = useCallback(async (payload: { name: string; email: string; phone: string; password: string; tenant: TenantId }) => {
     const data = await api<{ user: User; accessToken?: string; refreshToken?: string }>('/auth/signup', {
       method: 'POST',
       body: payload,
@@ -72,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     if (data.accessToken && data.refreshToken) {
       tokenStore.set(data.accessToken, data.refreshToken);
+      rememberTenant(payload.tenant);
       setUser(data.user);
       return { pending: false, user: data.user };
     }
