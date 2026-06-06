@@ -62,9 +62,6 @@ export default function SettingsPage() {
     .replace(/\{\{medicines\}\}/g, 'Metformin 500mg, Glimepiride 2mg')
     .replace(/\{\{nextDueDate\}\}/g, '12 Jun 2026');
 
-  const reminderLen = exampleReminder.length;
-  const thanksLen = exampleThanks.length;
-
   return (
     <div>
       <PageHeader
@@ -121,20 +118,10 @@ export default function SettingsPage() {
             onChange={e => update('messageTemplateReminder', e.target.value)}
           />
           <div>
-            <div className="text-[11px] uppercase tracking-[0.1em] text-[var(--muted)] mb-2 flex items-center justify-between">
-              <span>Preview</span>
-              <span className={`tabular-nums normal-case tracking-normal ${reminderLen > 160 ? 'text-[var(--danger-ink)]' : 'text-[var(--muted)]'}`}>
-                {reminderLen} / 160 chars
-              </span>
-            </div>
+            <div className="text-[11px] uppercase tracking-[0.1em] text-[var(--muted)] mb-2">Preview</div>
             <div className="rounded-md border border-[var(--border)] p-3 bg-[var(--bg-soft)] text-[12.5px] text-[var(--ink-2)] leading-relaxed">
               {exampleReminder}
             </div>
-            {reminderLen > 160 && (
-              <div className="text-[11px] text-[var(--danger-ink)] mt-1.5">
-                Over 160 chars — will be split into multiple SMS parts on some carriers.
-              </div>
-            )}
           </div>
         </div>
 
@@ -151,20 +138,10 @@ export default function SettingsPage() {
             onChange={e => update('messageTemplateThankYou', e.target.value)}
           />
           <div>
-            <div className="text-[11px] uppercase tracking-[0.1em] text-[var(--muted)] mb-2 flex items-center justify-between">
-              <span>Preview</span>
-              <span className={`tabular-nums normal-case tracking-normal ${thanksLen > 160 ? 'text-[var(--danger-ink)]' : 'text-[var(--muted)]'}`}>
-                {thanksLen} / 160 chars
-              </span>
-            </div>
+            <div className="text-[11px] uppercase tracking-[0.1em] text-[var(--muted)] mb-2">Preview</div>
             <div className="rounded-md border border-[var(--border)] p-3 bg-[var(--bg-soft)] text-[12.5px] text-[var(--ink-2)] leading-relaxed">
               {exampleThanks}
             </div>
-            {thanksLen > 160 && (
-              <div className="text-[11px] text-[var(--danger-ink)] mt-1.5">
-                Over 160 chars — will be split into multiple SMS parts on some carriers.
-              </div>
-            )}
           </div>
         </div>
       </div>
