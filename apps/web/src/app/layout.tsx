@@ -3,6 +3,8 @@ import type { Metadata, Viewport } from 'next';
 import { ReactNode } from 'react';
 import { AuthProvider } from '@/lib/auth-context';
 import { ToastProvider } from '@/components/Toast';
+import { OfflineBanner } from '@/components/OfflineBanner';
+import { UpdateBanner } from '@/components/UpdateBanner';
 
 export const metadata: Metadata = {
   title: 'PharmaCare — Pharmacy OS',
@@ -56,6 +58,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <AuthProvider>
           <ToastProvider>{children}</ToastProvider>
         </AuthProvider>
+        <OfflineBanner />
+        <UpdateBanner />
       </body>
     </html>
   );
