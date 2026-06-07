@@ -3,6 +3,7 @@
 import { ReactNode } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { AppShell } from '@/components/AppShell';
+import { InstallPrompt } from '@/components/InstallPrompt';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -14,5 +15,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     );
   }
   if (!user) return null;
-  return <AppShell>{children}</AppShell>;
+  return (
+    <>
+      <AppShell>{children}</AppShell>
+      <InstallPrompt />
+    </>
+  );
 }

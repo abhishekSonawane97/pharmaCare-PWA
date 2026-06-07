@@ -1,12 +1,39 @@
 import './globals.css';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { ReactNode } from 'react';
 import { AuthProvider } from '@/lib/auth-context';
 import { ToastProvider } from '@/components/Toast';
 
 export const metadata: Metadata = {
   title: 'PharmaCare — Pharmacy OS',
-  description: 'Pharmacy management with WhatsApp refill reminders.',
+  description: 'Pharmacy management with one-tap WhatsApp + SMS refill reminders.',
+  manifest: '/manifest.webmanifest',
+  applicationName: 'PharmaCare',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'PharmaCare',
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  icons: {
+    icon: [
+      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#1c6878',
+  width: 'device-width',
+  initialScale: 1,
+  // viewportFit: 'cover' lets the app extend under the iPhone notch when in standalone mode
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
