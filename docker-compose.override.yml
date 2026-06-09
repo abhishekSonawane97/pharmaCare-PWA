@@ -1,0 +1,18 @@
+# Local-development overlay. Compose v2 auto-merges this with
+# `docker-compose.yml` when you run `docker compose up` from this directory.
+#
+# Production (Dokploy) does NOT pick up this file — it sees only
+# docker-compose.yml, where the api/web ports are kept internal and
+# Traefik handles routing + HTTPS.
+#
+# Locally we expose both ports on the host so you can curl them directly
+# and so the browser at http://localhost:3000 can reach the web container.
+
+services:
+  api:
+    ports:
+      - "4000:4000"
+
+  web:
+    ports:
+      - "3000:3000"
