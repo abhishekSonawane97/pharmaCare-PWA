@@ -15,6 +15,7 @@ import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { useToast } from '@/components/Toast';
 import { PageHeader, EmptyState } from '@/components/PageHeader';
+import { PushPermissionPrompt } from '@/components/PushPermissionPrompt';
 import { Avatar } from '@/components/Avatar';
 import { Badge } from '@/components/Badge';
 import { Button } from '@/components/Button';
@@ -125,6 +126,8 @@ export default function RemindersPage() {
         subtitle="Customers due in the next 48 hours · tap to send via WhatsApp or SMS"
         actions={<Badge tone="brand" dot>{reminders.length} pending</Badge>}
       />
+
+      <PushPermissionPrompt />
 
       {reminders.length === 0 ? (
         <EmptyState icon={Bell} title="All caught up" body="No customers due right now." />

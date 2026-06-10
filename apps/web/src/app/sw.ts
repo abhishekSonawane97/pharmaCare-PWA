@@ -178,3 +178,50 @@ const serwist = new Serwist({
 });
 
 serwist.addEventListeners();
+
+// ─── Push notifications (Phase 4) ────────────────────────────────────────
+//
+// The api sends a JSON payload via web-push; this SW receives it, displays
+// a system notification, and (on tap) opens / focuses the relevant page.
+//
+// Payload shape (matches services/pushNotifications.ts PushPayload):
+//   { title, body, url?, tag?, icon?, badge? }
+
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+  let payload: any = {};
+  try { payload = event.data.json(); } catch { payload = { title: event.data.text() }; }
+
+  const title = payload.title || 'PharmaCare';
+  const options: NotificationOptions = {
+    body: payload.body || '',
+    icon: payload.icon || '/icons/icon-192.png',
+    badge: payload.badge || '/icons/icon-192.png',
+    tag: payload.tag,                  // replaces previous notification with same tag
+    data: { url: payload.url || '/' },
+    requireInteraction: false,
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl: string = (event.notification.data && event.notification.data.url) || '/';
+
+  event.waitUntil((async () => {
+    const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    // If the PWA is already open, focus it and navigate.
+    for (const c of clientList) {
+      if (c instanceof WindowClient) {
+        await c.focus();
+        try { await c.navigate(targetUrl); } catch { /* cross-origin or not allowed; ignore */ }
+        return;
+      }
+    }
+    // Otherwise open a fresh window at the target URL.
+    if (self.clients.openWindow) {
+      await self.clients.openWindow(targetUrl);
+    }
+  })());
+});

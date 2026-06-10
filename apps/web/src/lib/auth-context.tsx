@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { api, tokenStore, ApiError } from './api';
 import type { User } from './types';
 import { TenantId, rememberTenant } from './tenants';
+import { unsubscribePush } from './push';
 
 interface AuthContextValue {
   user: User | null;
@@ -82,6 +83,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Tear down push subscription first (best-effort) so the server can
+    // delete the row before we lose our access token. If unsubscribe fails
+    // (offline, server unavailable), proceed with logout anyway — the
+    // browser-side PushManager.unsubscribe still runs.
+    try { await unsubscribePush(); } catch { /* ignore */ }
+
     try {
       await api('/auth/logout', { method: 'POST' });
     } catch (err) {

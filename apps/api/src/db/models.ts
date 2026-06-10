@@ -21,6 +21,7 @@ import { MedicineSchema, IMedicine } from '../models/Medicine';
 import { PaymentSchema, IPayment } from '../models/Payment';
 import { ActivityLogSchema, IActivityLog } from '../models/ActivityLog';
 import { SettingsSchema, ISettings } from '../models/Settings';
+import { PushSubscriptionSchema, IPushSubscription } from '../models/PushSubscription';
 
 export interface TenantModels {
   User: Model<IUser>;
@@ -29,6 +30,7 @@ export interface TenantModels {
   Payment: Model<IPayment>;
   ActivityLog: Model<IActivityLog>;
   Settings: Model<ISettings>;
+  PushSubscription: Model<IPushSubscription>;
 }
 
 // Cached per-connection so repeated lookups don't try to re-register
@@ -53,6 +55,7 @@ export function getModels(conn: Connection): TenantModels {
     Payment: conn.model<IPayment>('Payment', PaymentSchema),
     ActivityLog: conn.model<IActivityLog>('ActivityLog', ActivityLogSchema),
     Settings: conn.model<ISettings>('Settings', SettingsSchema),
+    PushSubscription: conn.model<IPushSubscription>('PushSubscription', PushSubscriptionSchema),
   };
   cache.set(conn, models);
   return models;

@@ -12,6 +12,7 @@ import medicinesRouter from './routes/medicines';
 import activityRouter from './routes/activity';
 import settingsRouter from './routes/settings';
 import dashboardRouter from './routes/dashboard';
+import pushRouter from './routes/push';
 import { errorHandler } from './middleware/error';
 import { ensureSettings } from './models/Settings';
 import {
@@ -21,6 +22,8 @@ import {
 } from './db/connections';
 import { getModels } from './db/models';
 import { TENANT_IDS } from './config/tenants';
+import { startDailyReminderCron } from './services/cron';
+import { isPushConfigured } from './services/pushNotifications';
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:3000';
@@ -50,6 +53,7 @@ async function main() {
   app.use('/api/activity', activityRouter);
   app.use('/api/settings', settingsRouter);
   app.use('/api/dashboard', dashboardRouter);
+  app.use('/api/push', pushRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'Route not found' } });
@@ -64,6 +68,15 @@ async function main() {
     const conn = getTenantConnection(t);
     const { Settings } = getModels(conn);
     await ensureSettings(Settings);
+  }
+
+  // Start the daily reminder push cron. The cron itself checks for VAPID
+  // config on each fire, so it's safe to start regardless — it'll skip
+  // dispatch (with a log line) when VAPID env vars are missing.
+  if (isPushConfigured()) {
+    startDailyReminderCron();
+  } else {
+    console.log('[push-cron] VAPID env not set — cron not scheduled. Set VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY to enable push.');
   }
 
   app.listen(PORT, () => {

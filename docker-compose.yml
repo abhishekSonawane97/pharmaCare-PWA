@@ -27,6 +27,12 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@pharmacare.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme123}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      # Web Push (Phase 4) — generated once; same keys across tenants.
+      # If unset, cron logs a skip and frontend banner shows config-missing.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@pharmacare.local}
+      PUSH_CRON_TIME: ${PUSH_CRON_TIME:-10:00}
       TZ: Asia/Kolkata
     expose:
       - "4000"
